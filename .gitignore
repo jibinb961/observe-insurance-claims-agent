@@ -1,0 +1,12 @@
+node_modules/
+.env
+.DS_Store
+*.log
+
+# Planning and strategy docs — kept locally, not in the public repo
+CURSOR_MASTER_PROMPT.md
+SETUP_CHECKLIST.md
+Observe_TakeHome_Master_Strategy.md
+Observe_TakeHome_Build_Assets.md
+Observe_TakeHome_EdgeCases_Production.md
+*.pdf
