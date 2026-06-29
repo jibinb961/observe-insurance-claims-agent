@@ -47,15 +47,22 @@ async function lookupCustomer(phone) {
   const normalized = normalizePhone(phone);
   console.log('[airtable] lookupCustomer phone:[REDACTED] normalized_length:', normalized.length);
 
-  const records = await withTimeout(
-    base('Customers')
-      .select({
-        filterByFormula: `{phone} = "${normalized}"`,
-        maxRecords: 1,
-        fields: ['customer_id', 'first_name', 'last_name'],
-      })
-      .firstPage()
-  );
+  let records;
+  try {
+    records = await withTimeout(
+      base('Customers')
+        .select({
+          filterByFormula: `{phone} = "${normalized}"`,
+          maxRecords: 1,
+          fields: ['customer_id', 'first_name', 'last_name'],
+        })
+        .firstPage()
+    );
+  } catch (airtableErr) {
+    // Log full Airtable error so Render logs show the root cause
+    console.error('[airtable] lookupCustomer Airtable error:', airtableErr?.message, airtableErr?.statusCode, JSON.stringify(airtableErr?.error));
+    throw airtableErr;
+  }
 
   if (!records || records.length === 0) return { found: false };
 
@@ -119,14 +126,20 @@ async function getClaimStatus(customer_id, claim_id) {
 
   console.log('[airtable] getClaimStatus customer_id:', customer_id, 'claim_id:', claim_id || 'all');
 
-  const records = await withTimeout(
-    base('Claims')
-      .select({
-        filterByFormula: formula,
-        fields: ['claim_id', 'type', 'status', 'status_detail', 'docs_required', 'docs_list', 'last_updated'],
-      })
-      .firstPage()
-  );
+  let records;
+  try {
+    records = await withTimeout(
+      base('Claims')
+        .select({
+          filterByFormula: formula,
+          fields: ['claim_id', 'type', 'status', 'status_detail', 'docs_required', 'docs_list', 'last_updated'],
+        })
+        .firstPage()
+    );
+  } catch (airtableErr) {
+    console.error('[airtable] getClaimStatus Airtable error:', airtableErr?.message, airtableErr?.statusCode, JSON.stringify(airtableErr?.error));
+    throw airtableErr;
+  }
 
   if (!records || records.length === 0) return { found: false };
 

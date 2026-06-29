@@ -32,13 +32,27 @@ if (missing.length > 0) {
 // ─── Health check ─────────────────────────────────────────────────────────────
 // Used by Render to confirm the service is alive.
 // Also used in the pre-demo morning checklist — hit this before every demo session.
+// env_check exposes masked variable status so misconfiguration is immediately visible.
 app.get('/health', (req, res) => {
+  const baseId = process.env.AIRTABLE_BASE_ID || '';
+  const token = process.env.AIRTABLE_TOKEN || '';
+
   res.json({
     status: 'ok',
     service: 'observe-insurance-claims-agent',
     failMode: failSwitch.isFailMode(),
     timestamp: new Date().toISOString(),
     uptime_seconds: Math.floor(process.uptime()),
+    env_check: {
+      // Show enough to diagnose without exposing secrets
+      AIRTABLE_BASE_ID_prefix: baseId.slice(0, 12) || 'MISSING',
+      AIRTABLE_BASE_ID_length: baseId.length,
+      AIRTABLE_BASE_ID_has_slash: baseId.includes('/'),   // true = still has table suffix — BAD
+      AIRTABLE_TOKEN_set: token.length > 0,
+      AIRTABLE_TOKEN_length: token.length,
+      SLACK_WEBHOOK_set: !!process.env.SLACK_WEBHOOK_URL,
+      RETELL_API_KEY_set: !!process.env.RETELL_API_KEY,
+    },
   });
 });
 
