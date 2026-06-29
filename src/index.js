@@ -103,7 +103,10 @@ app.get('/debug/inbound-log', (req, res) => {
 //   { "call_inbound": { "dynamic_variables": { ...string values only... } } }
 // Flat JSON does not work. All DV values must be strings (Retell requirement).
 app.post('/webhook/inbound', async (req, res) => {
-  const { from_number } = req.body;
+  // Retell sends: { event: "call_inbound", call_inbound: { from_number, to_number, ... } }
+  // from_number is nested inside call_inbound, not at the top level.
+  console.log('[inbound] raw body keys:', Object.keys(req.body));
+  const from_number = req.body?.call_inbound?.from_number || req.body?.from_number;
   console.log('[inbound] call from:', from_number ? `[REDACTED, length=${from_number.length}]` : 'unknown');
 
   // DVs must always be strings — Retell rejects booleans and numbers
@@ -118,7 +121,7 @@ app.post('/webhook/inbound', async (req, res) => {
   };
 
   if (!from_number) {
-    logInbound({ from: 'missing', result: 'no_number', dvs: null });
+    logInbound({ from: 'missing', result: 'no_number', body_keys: Object.keys(req.body), dvs: null });
     return res.json(notFound);
   }
 
