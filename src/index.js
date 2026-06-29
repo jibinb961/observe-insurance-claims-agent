@@ -78,16 +78,28 @@ app.get('/demo/recover', (req, res) => {
 
 // ─── Inbound call webhook ─────────────────────────────────────────────────────
 // Retell fires this at the very start of every inbound call (before the agent speaks).
-// We look up the caller's phone number and return dynamic variables that the
-// Conversational Flow agent can use immediately — no mid-call tool call needed.
-// Configure in Retell: Agent → General → Inbound Webhook URL → POST /webhook/inbound
+// Returns dynamic variables injected into the agent at call start.
 //
-// Return format uses string "true"/"false" for Retell DV compatibility.
+// IMPORTANT — must be configured on the PHONE NUMBER, not the agent:
+//   Retell dashboard → Phone Numbers → +12183181089 → Inbound Webhook URL
+//
+// Retell requires this exact response envelope:
+//   { "call_inbound": { "dynamic_variables": { ...string values only... } } }
+// Flat JSON does not work. All DV values must be strings (Retell requirement).
 app.post('/webhook/inbound', async (req, res) => {
   const { from_number } = req.body;
-  console.log('[inbound] call from:', from_number ? `[${from_number.length} digits]` : 'unknown');
+  console.log('[inbound] call from:', from_number ? `[REDACTED, length=${from_number.length}]` : 'unknown');
 
-  const notFound = { customer_found: 'false', customer_id: '', first_name: '' };
+  // DVs must always be strings — Retell rejects booleans and numbers
+  const notFound = {
+    call_inbound: {
+      dynamic_variables: {
+        customer_found: 'false',
+        customer_id: '',
+        first_name: '',
+      },
+    },
+  };
 
   if (!from_number) {
     return res.json(notFound);
@@ -95,15 +107,21 @@ app.post('/webhook/inbound', async (req, res) => {
 
   try {
     const result = await airtable.lookupCustomer(from_number);
+
     if (result.found) {
       console.log('[inbound] caller identified:', result.customer_id);
       return res.json({
-        customer_id: result.customer_id,
-        first_name: result.first_name,
-        customer_found: 'true',
+        call_inbound: {
+          dynamic_variables: {
+            customer_found: 'true',
+            customer_id: result.customer_id,
+            first_name: result.first_name,
+          },
+        },
       });
     }
-    console.log('[inbound] caller not found in system');
+
+    console.log('[inbound] caller not in system');
     return res.json(notFound);
   } catch (err) {
     console.error('[inbound] lookup error:', err.message);
