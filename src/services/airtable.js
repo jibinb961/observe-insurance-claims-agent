@@ -226,6 +226,45 @@ async function writeInteractionRecord(data, call_id) {
 }
 
 /**
+ * Enrich an existing interaction record with post-call analysis data.
+ * Called by the call_analyzed webhook handler — fires after call_ended.
+ *
+ * Finds the record by call_id, then patches only the provided fields.
+ * Safe to call multiple times — Airtable update is idempotent.
+ *
+ * Returns { updated: true } or { updated: false, reason } if not found.
+ */
+async function updateInteractionRecord(call_id, fields) {
+  if (!call_id) throw new Error('call_id required for updateInteractionRecord');
+
+  console.log('[airtable] updateInteractionRecord call_id:', call_id, 'fields:', Object.keys(fields));
+
+  // Locate the existing record
+  const records = await withTimeout(
+    base('Interactions')
+      .select({
+        filterByFormula: `{call_id} = "${call_id}"`,
+        maxRecords: 1,
+        fields: ['call_id'],
+      })
+      .firstPage()
+  );
+
+  if (!records || records.length === 0) {
+    console.log('[airtable] updateInteractionRecord: no record found for call_id:', call_id);
+    return { updated: false, reason: 'not_found' };
+  }
+
+  const airtableRecordId = records[0].id;
+
+  // Patch only the supplied fields — leave everything else untouched
+  await withTimeout(base('Interactions').update(airtableRecordId, fields));
+
+  console.log('[airtable] updateInteractionRecord: enriched record for call_id:', call_id);
+  return { updated: true };
+}
+
+/**
  * Fetch recent interaction records for the dashboard.
  * Returns the most recent `limit` records sorted newest-first.
  */
@@ -257,5 +296,6 @@ module.exports = {
   verifyIdentity,
   getClaimStatus,
   writeInteractionRecord,
+  updateInteractionRecord,
   getRecentInteractions,
 };
