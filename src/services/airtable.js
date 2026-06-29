@@ -200,23 +200,25 @@ async function writeInteractionRecord(data, call_id) {
     return { written: false, reason: 'already_logged' };
   }
 
-  await withTimeout(
-    base('Interactions').create([
-      {
-        fields: {
-          call_id,
-          timestamp: new Date().toISOString(),
-          caller_name: data.caller_name || '',
-          customer_id: data.customer_id || '',
-          call_summary: data.call_summary || '',
-          sentiment: data.sentiment || 'Neutral',
-          intent: data.intent || 'other',
-          resolution: data.resolution || 'incomplete',
-          escalated: data.escalated === true,
-        },
-      },
-    ])
-  );
+  // escalated is a Single Select field in Airtable ("Yes" / omitted).
+  // Retell DV interpolation can produce boolean true/false OR the strings
+  // "true"/"false" — normalize both before writing.
+  const escalatedBool =
+    data.escalated === true || data.escalated === 'true';
+
+  const fields = {
+    call_id,
+    timestamp: new Date().toISOString(),
+    caller_name: data.caller_name || '',
+    customer_id: data.customer_id || '',
+    call_summary: data.call_summary || '',
+    sentiment: data.sentiment || 'Neutral',
+    intent: data.intent || 'other',
+    resolution: data.resolution || 'incomplete',
+    ...(escalatedBool ? { escalated: 'Yes' } : {}),
+  };
+
+  await withTimeout(base('Interactions').create([{ fields }]));
 
   console.log('[airtable] interaction record written for call_id:', call_id);
   return { written: true };
