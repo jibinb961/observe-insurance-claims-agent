@@ -225,9 +225,37 @@ async function writeInteractionRecord(data, call_id) {
   return { written: true };
 }
 
+/**
+ * Fetch recent interaction records for the dashboard.
+ * Returns the most recent `limit` records sorted newest-first.
+ */
+async function getRecentInteractions(limit = 20) {
+  const records = await withTimeout(
+    base('Interactions')
+      .select({
+        sort: [{ field: 'timestamp', direction: 'desc' }],
+        maxRecords: limit,
+        fields: ['call_id', 'timestamp', 'caller_name', 'customer_id', 'sentiment', 'intent', 'resolution', 'escalated'],
+      })
+      .firstPage()
+  );
+
+  return (records || []).map((r) => ({
+    call_id: r.fields.call_id || '',
+    timestamp: r.fields.timestamp || '',
+    caller_name: r.fields.caller_name || 'Unknown',
+    customer_id: r.fields.customer_id || '',
+    sentiment: r.fields.sentiment || 'Neutral',
+    intent: r.fields.intent || 'other',
+    resolution: r.fields.resolution || 'incomplete',
+    escalated: r.fields.escalated === 'Yes',
+  }));
+}
+
 module.exports = {
   lookupCustomer,
   verifyIdentity,
   getClaimStatus,
   writeInteractionRecord,
+  getRecentInteractions,
 };

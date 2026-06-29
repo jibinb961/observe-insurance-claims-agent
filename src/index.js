@@ -9,18 +9,25 @@
  *   POST /webhook/inbound      → Retell inbound call hook — pre-populates DVs at call start
  *   POST /tools/*              → Retell tool webhooks (5 tools)
  *   POST /webhooks/call-end    → Retell post-call fallback writer
+ *   GET  /dashboard            → Contact centre operations dashboard (served from public/)
+ *   GET  /api/dashboard-data   → JSON data feed for the dashboard
+ *   GET  /debug/test-slack     → Fire a test Slack escalation alert
+ *   GET  /debug/inbound-log    → Ring buffer of last 20 inbound webhook calls
  */
 
 require('dotenv').config();
 
+const path = require('path');
 const express = require('express');
 const toolsRouter = require('./routes/tools');
 const webhooksRouter = require('./routes/webhooks');
 const failSwitch = require('./demo/failSwitch');
 const airtable = require('./services/airtable');
+const slack = require('./services/slack');
 
 const app = express();
 app.use(express.json());
+app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // ─── Startup validation ───────────────────────────────────────────────────────
 // Fail fast if critical env vars are missing — better than silent tool failures
@@ -146,6 +153,59 @@ app.post('/webhook/inbound', async (req, res) => {
     console.error('[inbound] lookup error:', err.message);
     logInbound({ from: `+***${from_number.slice(-4)}`, result: 'error', error: err.message, dvs: null });
     return res.json(notFound);
+  }
+});
+
+// ─── Dashboard data API ───────────────────────────────────────────────────────
+// Single endpoint that powers the /dashboard page.
+// Returns health status + last 20 interactions + inbound call log.
+app.get('/api/dashboard-data', async (req, res) => {
+  const baseId = process.env.AIRTABLE_BASE_ID || '';
+  const health = {
+    status: 'ok',
+    failMode: failSwitch.isFailMode(),
+    uptime_seconds: Math.floor(process.uptime()),
+    slack_configured: !!process.env.SLACK_WEBHOOK_URL,
+    airtable_ok: baseId.length > 0 && !baseId.includes('/'),
+  };
+
+  let interactions = [];
+  try {
+    interactions = await airtable.getRecentInteractions(20);
+  } catch (err) {
+    console.error('[dashboard] failed to fetch interactions:', err.message);
+  }
+
+  // Compute today's stats from the interactions we already fetched
+  const todayPrefix = new Date().toISOString().slice(0, 10); // "2026-06-29"
+  const todayCalls = interactions.filter((i) => i.timestamp.startsWith(todayPrefix));
+  const stats = {
+    total_today: todayCalls.length,
+    escalated_today: todayCalls.filter((i) => i.escalated).length,
+    resolved_today: todayCalls.filter((i) => i.resolution === 'resolved').length,
+  };
+
+  res.json({ health, stats, interactions, inbound_log: inboundLog });
+});
+
+// ─── Slack test endpoint ───────────────────────────────────────────────────────
+// GET /debug/test-slack — fires a test Slack alert to confirm the webhook is wired.
+app.get('/debug/test-slack', async (req, res) => {
+  if (!process.env.SLACK_WEBHOOK_URL) {
+    return res.status(400).json({
+      notified: false,
+      error: 'SLACK_WEBHOOK_URL is not set. Add it to your .env and Render env vars.',
+    });
+  }
+  try {
+    await slack.notifyEscalation({
+      caller_name: 'Test Caller',
+      reason: 'Manual test from /debug/test-slack',
+      summary: 'This is a test notification — backend Slack integration is working.',
+    });
+    res.json({ notified: true, message: 'Test Slack message sent successfully.' });
+  } catch (err) {
+    res.status(500).json({ notified: false, error: err.message });
   }
 });
 

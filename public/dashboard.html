@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Observe Insurance — Claims AI Operations</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #f4f5f7;
+      --surface:   #ffffff;
+      --border:    #e2e5ea;
+      --text:      #1a1d23;
+      --muted:     #6b7280;
+      --accent:    #2563eb;
+      --accent-lt: #eff6ff;
+      --green:     #16a34a;
+      --green-lt:  #f0fdf4;
+      --red:       #dc2626;
+      --red-lt:    #fef2f2;
+      --amber:     #d97706;
+      --amber-lt:  #fffbeb;
+      --navy:      #0f172a;
+      --mono:      'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 14px;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Header ─────────────────────────────────────────── */
+    header {
+      background: var(--navy);
+      color: #e2e8f0;
+      padding: 0 24px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand-name { font-size: 15px; font-weight: 600; color: #f8fafc; letter-spacing: -0.2px; }
+    .brand-sub { font-size: 12px; color: #94a3b8; border-left: 1px solid #334155; padding-left: 12px; }
+
+    .header-right { display: flex; align-items: center; gap: 20px; }
+    .live-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #22c55e;
+      box-shadow: 0 0 0 0 rgba(34,197,94,0.4);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(34,197,94,0.4); }
+      70%  { box-shadow: 0 0 0 6px rgba(34,197,94,0); }
+      100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+    }
+    .live-label { font-size: 12px; color: #94a3b8; display: flex; align-items: center; gap: 6px; }
+    #last-refresh { font-size: 11px; color: #64748b; font-family: var(--mono); }
+
+    /* ── Layout ─────────────────────────────────────────── */
+    .page { max-width: 1280px; margin: 0 auto; padding: 24px 24px 48px; }
+
+    /* ── Stat cards ──────────────────────────────────────── */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px 20px;
+    }
+    .stat-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); margin-bottom: 6px; }
+    .stat-value { font-size: 28px; font-weight: 700; line-height: 1; color: var(--text); }
+    .stat-value.accent { color: var(--accent); }
+    .stat-value.green  { color: var(--green); }
+    .stat-value.red    { color: var(--red); }
+    .stat-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+    /* Fail mode card gets a red tint when active */
+    .stat-card.fail-active { background: var(--red-lt); border-color: #fca5a5; }
+    .stat-card.fail-active .stat-value { color: var(--red); }
+
+    /* ── Two-column grid ──────────────────────────────────── */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      gap: 16px;
+      align-items: start;
+    }
+
+    /* ── Panel ───────────────────────────────────────────── */
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .panel-title { font-size: 13px; font-weight: 600; color: var(--text); }
+    .panel-body { padding: 16px; }
+    .panel-body.no-pad { padding: 0; }
+
+    /* ── Table ───────────────────────────────────────────── */
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      text-align: left;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--muted);
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--border);
+      background: #fafbfc;
+    }
+    td {
+      padding: 10px 16px;
+      border-bottom: 1px solid #f1f3f5;
+      font-size: 13px;
+      vertical-align: middle;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #fafbfc; }
+
+    .call-id { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+    .time-cell { font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+    /* ── Badges ──────────────────────────────────────────── */
+    .badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 100px;
+      white-space: nowrap;
+    }
+    .badge-green  { background: var(--green-lt);  color: var(--green); }
+    .badge-red    { background: var(--red-lt);    color: var(--red); }
+    .badge-amber  { background: var(--amber-lt);  color: var(--amber); }
+    .badge-blue   { background: var(--accent-lt); color: var(--accent); }
+    .badge-gray   { background: #f1f5f9;          color: #475569; }
+
+    /* ── Demo Controls panel ─────────────────────────────── */
+    .control-group { margin-bottom: 16px; }
+    .control-group:last-child { margin-bottom: 0; }
+    .control-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin-bottom: 8px; }
+    .control-desc  { font-size: 12px; color: var(--muted); margin-bottom: 10px; line-height: 1.5; }
+
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      font-size: 13px; font-weight: 500;
+      padding: 8px 14px; border-radius: 6px; border: 1px solid transparent;
+      cursor: pointer; transition: opacity 0.15s; white-space: nowrap;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn:active { opacity: 0.7; }
+    .btn-danger  { background: var(--red);    color: #fff; border-color: var(--red); }
+    .btn-outline { background: transparent;   color: var(--text); border-color: var(--border); }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-success { background: var(--green);  color: #fff; }
+    .btn-sm { font-size: 12px; padding: 5px 10px; }
+
+    .btn-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+    select, input[type="number"] {
+      font-size: 13px; padding: 7px 10px; border: 1px solid var(--border);
+      border-radius: 6px; color: var(--text); background: var(--surface);
+      outline: none;
+    }
+    select:focus, input:focus { border-color: var(--accent); }
+
+    /* ── Inbound call log ─────────────────────────────────── */
+    .log-entry {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      display: grid;
+      grid-template-columns: 100px 1fr auto;
+      gap: 8px;
+      align-items: center;
+    }
+    .log-entry:last-child { border-bottom: none; }
+    .log-time { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+    .log-from { color: var(--text); }
+    .log-empty { padding: 16px 12px; color: var(--muted); font-size: 12px; text-align: center; }
+
+    /* ── Status bar ───────────────────────────────────────── */
+    .status-bar {
+      display: flex; gap: 16px; align-items: center;
+      padding: 8px 0;
+      margin-bottom: 20px;
+    }
+    .status-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+    .status-dot { width: 6px; height: 6px; border-radius: 50%; }
+    .status-dot.green { background: var(--green); }
+    .status-dot.red   { background: var(--red); }
+    .status-dot.gray  { background: #94a3b8; }
+
+    /* ── Empty state ──────────────────────────────────────── */
+    .empty-row td { text-align: center; color: var(--muted); padding: 32px; }
+
+    /* ── Toast ────────────────────────────────────────────── */
+    #toast {
+      position: fixed; bottom: 24px; right: 24px;
+      background: var(--navy); color: #f8fafc;
+      padding: 10px 16px; border-radius: 8px;
+      font-size: 13px;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.2s;
+      z-index: 999;
+    }
+    #toast.show { opacity: 1; }
+
+    /* ── Responsive ───────────────────────────────────────── */
+    @media (max-width: 900px) {
+      .grid-2 { grid-template-columns: 1fr; }
+      .stats-row { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <span class="brand-name">Observe Insurance</span>
+    <span class="brand-sub">Claims AI Operations</span>
+  </div>
+  <div class="header-right">
+    <span id="last-refresh">—</span>
+    <span class="live-label">
+      <span class="live-dot"></span>
+      Live
+    </span>
+  </div>
+</header>
+
+<div class="page">
+
+  <!-- Status bar -->
+  <div class="status-bar">
+    <div class="status-item">
+      <span class="status-dot green" id="dot-backend"></span>
+      <span id="label-backend">Backend</span>
+    </div>
+    <div class="status-item">
+      <span class="status-dot gray" id="dot-slack"></span>
+      <span id="label-slack">Slack</span>
+    </div>
+    <div class="status-item">
+      <span class="status-dot green" id="dot-airtable"></span>
+      <span id="label-airtable">Airtable</span>
+    </div>
+    <div class="status-item" style="margin-left:auto">
+      <span id="uptime-label" style="font-family:var(--mono);font-size:11px;color:var(--muted)">uptime: —</span>
+    </div>
+  </div>
+
+  <!-- Stat cards -->
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-label">Calls Today</div>
+      <div class="stat-value accent" id="stat-total">—</div>
+      <div class="stat-sub">inbound calls handled</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Resolved</div>
+      <div class="stat-value green" id="stat-resolved">—</div>
+      <div class="stat-sub">resolved without escalation</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Escalated</div>
+      <div class="stat-value red" id="stat-escalated">—</div>
+      <div class="stat-sub">transferred to agent</div>
+    </div>
+    <div class="stat-card" id="fail-card">
+      <div class="stat-label">Fail Mode</div>
+      <div class="stat-value" id="stat-fail">OFF</div>
+      <div class="stat-sub" id="fail-sub">backend responding normally</div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+
+    <!-- Left: interaction table + inbound log -->
+    <div style="display:flex;flex-direction:column;gap:16px;">
+
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Recent Interactions</span>
+          <button class="btn btn-outline btn-sm" onclick="refresh()">Refresh</button>
+        </div>
+        <div class="panel-body no-pad">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Caller</th>
+                <th>Customer</th>
+                <th>Intent</th>
+                <th>Resolution</th>
+                <th>Sentiment</th>
+                <th>Escalated</th>
+              </tr>
+            </thead>
+            <tbody id="interactions-body">
+              <tr class="empty-row"><td colspan="7">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Inbound Call Log</span>
+          <span style="font-size:11px;color:var(--muted)">last 20 calls received by webhook</span>
+        </div>
+        <div class="panel-body no-pad" id="inbound-log-body">
+          <div class="log-empty">No calls yet.</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right: demo controls -->
+    <div style="display:flex;flex-direction:column;gap:16px;">
+
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Demo Controls</span>
+        </div>
+        <div class="panel-body">
+
+          <div class="control-group">
+            <div class="control-label">Failure Simulation</div>
+            <div class="control-desc">Inject a backend failure mid-call. All tool endpoints return 500 for the selected duration, then auto-recover. Triggers graceful degradation in the agent.</div>
+            <div class="btn-row">
+              <select id="fail-duration">
+                <option value="15">15 seconds</option>
+                <option value="30" selected>30 seconds</option>
+                <option value="60">60 seconds</option>
+                <option value="120">2 minutes</option>
+              </select>
+              <button class="btn btn-danger" onclick="triggerFail()">Trigger Fail</button>
+              <button class="btn btn-success" onclick="recover()">Recover Now</button>
+            </div>
+          </div>
+
+          <hr style="border:none;border-top:1px solid var(--border);margin:16px 0" />
+
+          <div class="control-group">
+            <div class="control-label">Slack Integration</div>
+            <div class="control-desc">Fire a test escalation alert to confirm the Slack webhook is wired correctly.</div>
+            <div class="btn-row">
+              <button class="btn btn-primary" onclick="testSlack()">Send Test Alert</button>
+              <span id="slack-result" style="font-size:12px;color:var(--muted)"></span>
+            </div>
+          </div>
+
+          <hr style="border:none;border-top:1px solid var(--border);margin:16px 0" />
+
+          <div class="control-group">
+            <div class="control-label">Quick Lookup</div>
+            <div class="control-desc">Look up a customer by phone number directly.</div>
+            <div class="btn-row" style="margin-bottom:8px;">
+              <input type="text" id="lookup-phone" placeholder="+12125550101" style="flex:1;min-width:0" />
+              <button class="btn btn-outline" onclick="lookupCustomer()">Lookup</button>
+            </div>
+            <div id="lookup-result" style="font-size:12px;line-height:1.6;color:var(--muted)"></div>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Endpoint Reference</span>
+        </div>
+        <div class="panel-body" style="padding:12px 16px;">
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            <div style="font-size:11px;display:flex;gap:8px;align-items:baseline">
+              <span style="font-family:var(--mono);color:var(--accent);width:36px;flex-shrink:0">POST</span>
+              <span style="font-family:var(--mono);color:var(--muted)">/tools/lookup-customer</span>
+            </div>
+            <div style="font-size:11px;display:flex;gap:8px;align-items:baseline">
+              <span style="font-family:var(--mono);color:var(--accent);width:36px;flex-shrink:0">POST</span>
+              <span style="font-family:var(--mono);color:var(--muted)">/tools/verify-identity</span>
+            </div>
+            <div style="font-size:11px;display:flex;gap:8px;align-items:baseline">
+              <span style="font-family:var(--mono);color:var(--accent);width:36px;flex-shrink:0">POST</span>
+              <span style="font-family:var(--mono);color:var(--muted)">/tools/get-claim-status</span>
+            </div>
+            <div style="font-size:11px;display:flex;gap:8px;align-items:baseline">
+              <span style="font-family:var(--mono);color:var(--accent);width:36px;flex-shrink:0">POST</span>
+              <span style="font-family:var(--mono);color:var(--muted)">/tools/notify-escalation</span>
+            </div>
+            <div style="font-size:11px;display:flex;gap:8px;align-items:baseline">
+              <span style="font-family:var(--mono);color:var(--accent);width:36px;flex-shrink:0">POST</span>
+              <span style="font-family:var(--mono);color:var(--muted)">/tools/write-interaction-record</span>
+            </div>
+            <div style="font-size:11px;display:flex;gap:8px;align-items:baseline;margin-top:4px;padding-top:6px;border-top:1px solid var(--border)">
+              <span style="font-family:var(--mono);color:#16a34a;width:36px;flex-shrink:0">GET</span>
+              <span style="font-family:var(--mono);color:var(--muted)">/health</span>
+            </div>
+            <div style="font-size:11px;display:flex;gap:8px;align-items:baseline">
+              <span style="font-family:var(--mono);color:#16a34a;width:36px;flex-shrink:0">GET</span>
+              <span style="font-family:var(--mono);color:var(--muted)">/demo/fail?duration=30</span>
+            </div>
+            <div style="font-size:11px;display:flex;gap:8px;align-items:baseline">
+              <span style="font-family:var(--mono);color:#16a34a;width:36px;flex-shrink:0">GET</span>
+              <span style="font-family:var(--mono);color:var(--muted)">/demo/recover</span>
+            </div>
+            <div style="font-size:11px;display:flex;gap:8px;align-items:baseline">
+              <span style="font-family:var(--mono);color:#16a34a;width:36px;flex-shrink:0">GET</span>
+              <span style="font-family:var(--mono);color:var(--muted)">/webhook/inbound</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+  // ── Helpers ──────────────────────────────────────────────────────────────
+  function fmt(ts) {
+    if (!ts) return '—';
+    const d = new Date(ts);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+
+  function sentimentBadge(s) {
+    const map = { Positive: 'badge-green', Negative: 'badge-red', Neutral: 'badge-gray', Frustrated: 'badge-amber' };
+    return `<span class="badge ${map[s] || 'badge-gray'}">${s || 'Neutral'}</span>`;
+  }
+
+  function resolutionBadge(r) {
+    const map = { resolved: 'badge-green', escalated: 'badge-red', incomplete: 'badge-amber' };
+    return `<span class="badge ${map[r] || 'badge-gray'}">${r || 'incomplete'}</span>`;
+  }
+
+  function intentBadge(i) {
+    const label = (i || 'other').replace(/_/g, ' ');
+    return `<span class="badge badge-blue">${label}</span>`;
+  }
+
+  function showToast(msg, duration = 2500) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), duration);
+  }
+
+  // ── Data fetch ───────────────────────────────────────────────────────────
+  async function refresh() {
+    let data;
+    try {
+      const r = await fetch('/api/dashboard-data');
+      data = await r.json();
+    } catch (e) {
+      showToast('Could not reach backend');
+      return;
+    }
+
+    const { health, stats, interactions, inbound_log } = data;
+
+    // Status bar
+    const backendDot = document.getElementById('dot-backend');
+    document.getElementById('label-backend').textContent = 'Backend ' + (health.status === 'ok' ? 'OK' : 'ERROR');
+    backendDot.className = 'status-dot ' + (health.status === 'ok' ? 'green' : 'red');
+
+    const slackDot = document.getElementById('dot-slack');
+    slackDot.className = 'status-dot ' + (health.slack_configured ? 'green' : 'gray');
+    document.getElementById('label-slack').textContent = 'Slack ' + (health.slack_configured ? 'configured' : 'not configured');
+
+    const airtableDot = document.getElementById('dot-airtable');
+    airtableDot.className = 'status-dot ' + (health.airtable_ok ? 'green' : 'red');
+    document.getElementById('label-airtable').textContent = 'Airtable ' + (health.airtable_ok ? 'OK' : 'config error');
+
+    document.getElementById('uptime-label').textContent = 'uptime: ' + fmtUptime(health.uptime_seconds);
+
+    // Stat cards
+    document.getElementById('stat-total').textContent = stats.total_today;
+    document.getElementById('stat-resolved').textContent = stats.resolved_today;
+    document.getElementById('stat-escalated').textContent = stats.escalated_today;
+
+    const failCard = document.getElementById('fail-card');
+    const failStat = document.getElementById('stat-fail');
+    const failSub  = document.getElementById('fail-sub');
+    if (health.failMode) {
+      failCard.classList.add('fail-active');
+      failStat.textContent = 'ON';
+      failSub.textContent  = 'simulated failure active';
+    } else {
+      failCard.classList.remove('fail-active');
+      failStat.textContent = 'OFF';
+      failSub.textContent  = 'backend responding normally';
+    }
+
+    // Interactions table
+    const tbody = document.getElementById('interactions-body');
+    if (!interactions || interactions.length === 0) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No interactions recorded yet. Make a call to see data here.</td></tr>';
+    } else {
+      tbody.innerHTML = interactions.map((i) => `
+        <tr>
+          <td class="time-cell">${fmt(i.timestamp)}</td>
+          <td>${escHtml(i.caller_name)}</td>
+          <td class="call-id">${escHtml(i.customer_id)}</td>
+          <td>${intentBadge(i.intent)}</td>
+          <td>${resolutionBadge(i.resolution)}</td>
+          <td>${sentimentBadge(i.sentiment)}</td>
+          <td>${i.escalated
+            ? '<span class="badge badge-red">Yes</span>'
+            : '<span class="badge badge-gray">No</span>'}
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    // Inbound call log
+    const logBody = document.getElementById('inbound-log-body');
+    if (!inbound_log || inbound_log.length === 0) {
+      logBody.innerHTML = '<div class="log-empty">No inbound calls received yet.</div>';
+    } else {
+      logBody.innerHTML = inbound_log.map((entry) => {
+        const badge = entry.result === 'found'
+          ? '<span class="badge badge-green">identified</span>'
+          : entry.result === 'not_found'
+          ? '<span class="badge badge-gray">unknown caller</span>'
+          : entry.result === 'no_number'
+          ? '<span class="badge badge-amber">no number</span>'
+          : `<span class="badge badge-red">${escHtml(entry.result)}</span>`;
+        return `<div class="log-entry">
+          <span class="log-time">${fmt(entry.ts)}</span>
+          <span class="log-from">${escHtml(entry.from || '—')}</span>
+          ${badge}
+        </div>`;
+      }).join('');
+    }
+
+    document.getElementById('last-refresh').textContent = 'updated ' + new Date().toLocaleTimeString();
+  }
+
+  function fmtUptime(s) {
+    if (!s) return '—';
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${sec}s`;
+    return `${sec}s`;
+  }
+
+  function escHtml(str) {
+    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // ── Demo controls ────────────────────────────────────────────────────────
+  async function triggerFail() {
+    const dur = document.getElementById('fail-duration').value;
+    const r = await fetch(`/demo/fail?duration=${dur}`);
+    const d = await r.json();
+    showToast(`Fail mode active for ${dur}s — auto-recovers at ${new Date(d.recoversAt).toLocaleTimeString()}`);
+    setTimeout(refresh, 500);
+  }
+
+  async function recover() {
+    await fetch('/demo/recover');
+    showToast('Recovered. Backend responding normally.');
+    setTimeout(refresh, 500);
+  }
+
+  async function testSlack() {
+    const el = document.getElementById('slack-result');
+    el.textContent = 'Sending…';
+    try {
+      const r = await fetch('/debug/test-slack');
+      const d = await r.json();
+      if (d.notified) {
+        el.style.color = 'var(--green)';
+        el.textContent = 'Sent! Check your Slack channel.';
+      } else {
+        el.style.color = 'var(--red)';
+        el.textContent = d.error || 'Failed — check SLACK_WEBHOOK_URL env var.';
+      }
+    } catch {
+      el.style.color = 'var(--red)';
+      el.textContent = 'Request failed.';
+    }
+  }
+
+  async function lookupCustomer() {
+    const phone = document.getElementById('lookup-phone').value.trim();
+    const el = document.getElementById('lookup-result');
+    if (!phone) { el.textContent = 'Enter a phone number.'; return; }
+    el.textContent = 'Looking up…';
+    try {
+      const r = await fetch('/tools/lookup-customer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone_number: phone }),
+      });
+      const d = await r.json();
+      if (d.found) {
+        el.style.color = 'var(--green)';
+        el.innerHTML = `<strong>${escHtml(d.first_name)} ${escHtml(d.last_name)}</strong><br>${escHtml(d.customer_id)}`;
+      } else {
+        el.style.color = 'var(--muted)';
+        el.textContent = 'No customer found for that number.';
+      }
+    } catch {
+      el.style.color = 'var(--red)';
+      el.textContent = 'Request failed.';
+    }
+  }
+
+  // ── Auto-refresh every 30s ───────────────────────────────────────────────
+  refresh();
+  setInterval(refresh, 30000);
+</script>
+</body>
+</html>
