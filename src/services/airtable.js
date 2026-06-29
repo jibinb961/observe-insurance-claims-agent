@@ -114,7 +114,7 @@ async function verifyIdentity(customer_id, dob_last4) {
  *
  * Returns shape:
  *   Single claim: { found, single:true, claim_id, type, status, status_detail, docs_required, docs_list, last_updated }
- *   Multi claim:  { found, multiple:true, claims: [{claim_id, type, status}] }
+ *   Multi claim:  { found, multiple:true, claims: [{claim_id, type, status, status_detail}] }
  *   Not found:    { found: false }
  */
 async function getClaimStatus(customer_id, claim_id) {
@@ -161,7 +161,7 @@ async function getClaimStatus(customer_id, claim_id) {
     };
   }
 
-  // No claim_id provided — return list for disambiguation
+  // No claim_id provided — return full list for disambiguation (no second call needed)
   return {
     found: true,
     multiple: records.length > 1,
@@ -169,6 +169,7 @@ async function getClaimStatus(customer_id, claim_id) {
       claim_id: r.fields.claim_id,
       type: r.fields.type,
       status: r.fields.status,
+      status_detail: r.fields.status_detail || null,
     })),
   };
 }
