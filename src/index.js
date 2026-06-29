@@ -76,6 +76,22 @@ app.get('/demo/recover', (req, res) => {
   res.json({ message: 'Fail mode disabled', status: 'ok' });
 });
 
+// ─── Debug: inbound call log ──────────────────────────────────────────────────
+// In-memory ring buffer of the last 20 inbound webhook calls.
+// GET /debug/inbound-log to see whether Retell hit the endpoint and what we returned.
+// Remove or gate behind auth before any public-facing production deployment.
+const inboundLog = [];
+const MAX_LOG = 20;
+
+function logInbound(entry) {
+  inboundLog.unshift({ ...entry, ts: new Date().toISOString() });
+  if (inboundLog.length > MAX_LOG) inboundLog.pop();
+}
+
+app.get('/debug/inbound-log', (req, res) => {
+  res.json({ count: inboundLog.length, calls: inboundLog });
+});
+
 // ─── Inbound call webhook ─────────────────────────────────────────────────────
 // Retell fires this at the very start of every inbound call (before the agent speaks).
 // Returns dynamic variables injected into the agent at call start.
@@ -102,6 +118,7 @@ app.post('/webhook/inbound', async (req, res) => {
   };
 
   if (!from_number) {
+    logInbound({ from: 'missing', result: 'no_number', dvs: null });
     return res.json(notFound);
   }
 
@@ -110,21 +127,21 @@ app.post('/webhook/inbound', async (req, res) => {
 
     if (result.found) {
       console.log('[inbound] caller identified:', result.customer_id);
-      return res.json({
-        call_inbound: {
-          dynamic_variables: {
-            customer_found: 'true',
-            customer_id: result.customer_id,
-            first_name: result.first_name,
-          },
-        },
-      });
+      const dvs = {
+        customer_found: 'true',
+        customer_id: result.customer_id,
+        first_name: result.first_name,
+      };
+      logInbound({ from: `+***${from_number.slice(-4)}`, result: 'found', dvs });
+      return res.json({ call_inbound: { dynamic_variables: dvs } });
     }
 
     console.log('[inbound] caller not in system');
+    logInbound({ from: `+***${from_number.slice(-4)}`, result: 'not_found', dvs: null });
     return res.json(notFound);
   } catch (err) {
     console.error('[inbound] lookup error:', err.message);
+    logInbound({ from: `+***${from_number.slice(-4)}`, result: 'error', error: err.message, dvs: null });
     return res.json(notFound);
   }
 });
