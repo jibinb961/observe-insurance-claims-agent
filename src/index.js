@@ -3,11 +3,12 @@
  * Retell + Airtable + Slack
  *
  * Endpoints:
- *   GET  /health              → Render warm-up ping + demo status
- *   GET  /demo/fail?duration= → Enable simulated failure (seconds)
- *   GET  /demo/recover        → Disable simulated failure immediately
- *   POST /tools/*             → Retell tool webhooks (5 tools)
- *   POST /webhooks/call-end   → Retell post-call fallback writer
+ *   GET  /health               → Render warm-up ping + demo status
+ *   GET  /demo/fail?duration=  → Enable simulated failure (seconds)
+ *   GET  /demo/recover         → Disable simulated failure immediately
+ *   POST /webhook/inbound      → Retell inbound call hook — pre-populates DVs at call start
+ *   POST /tools/*              → Retell tool webhooks (5 tools)
+ *   POST /webhooks/call-end    → Retell post-call fallback writer
  */
 
 require('dotenv').config();
@@ -16,6 +17,7 @@ const express = require('express');
 const toolsRouter = require('./routes/tools');
 const webhooksRouter = require('./routes/webhooks');
 const failSwitch = require('./demo/failSwitch');
+const airtable = require('./services/airtable');
 
 const app = express();
 app.use(express.json());
@@ -72,6 +74,41 @@ app.get('/demo/fail', (req, res) => {
 app.get('/demo/recover', (req, res) => {
   failSwitch.disable();
   res.json({ message: 'Fail mode disabled', status: 'ok' });
+});
+
+// ─── Inbound call webhook ─────────────────────────────────────────────────────
+// Retell fires this at the very start of every inbound call (before the agent speaks).
+// We look up the caller's phone number and return dynamic variables that the
+// Conversational Flow agent can use immediately — no mid-call tool call needed.
+// Configure in Retell: Agent → General → Inbound Webhook URL → POST /webhook/inbound
+//
+// Return format uses string "true"/"false" for Retell DV compatibility.
+app.post('/webhook/inbound', async (req, res) => {
+  const { from_number } = req.body;
+  console.log('[inbound] call from:', from_number ? `[${from_number.length} digits]` : 'unknown');
+
+  const notFound = { customer_found: 'false', customer_id: '', first_name: '' };
+
+  if (!from_number) {
+    return res.json(notFound);
+  }
+
+  try {
+    const result = await airtable.lookupCustomer(from_number);
+    if (result.found) {
+      console.log('[inbound] caller identified:', result.customer_id);
+      return res.json({
+        customer_id: result.customer_id,
+        first_name: result.first_name,
+        customer_found: 'true',
+      });
+    }
+    console.log('[inbound] caller not found in system');
+    return res.json(notFound);
+  } catch (err) {
+    console.error('[inbound] lookup error:', err.message);
+    return res.json(notFound);
+  }
 });
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
