@@ -115,6 +115,7 @@ router.post('/verify-identity', async (req, res) => {
  * customer_id returns found:false — cross-customer lookups are structurally impossible.
  */
 router.post('/get-claim-status', async (req, res) => {
+  console.log('RAW BODY:', JSON.stringify(req.body));
   const { customer_id, claim_id } = req.body;
 
   if (!customer_id) {
