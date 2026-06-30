@@ -70,7 +70,7 @@ router.post('/call-end', async (req, res) => {
   if (event === 'call_ended') {
     await handleCallEnded(call_id, call);
   } else if (event === 'call_analyzed') {
-    await handleCallAnalyzed(call_id, call);
+    await handleCallAnalyzed(call_id);  // fetches from Retell API internally
   } else {
     // call_started and other events — nothing to write
     console.log(`[webhook] ignoring event: ${event}`);
@@ -133,45 +133,62 @@ async function handleCallEnded(call_id, call) {
 }
 
 // ─── Phase 2: call_analyzed ──────────────────────────────────────────────────
-async function handleCallAnalyzed(call_id, call) {
-  const analysis = call.call_analysis || {};
+// call_analyzed is used purely as a trigger. We fetch the full call object
+// from Retell's Get Call API to get authoritative analysis data, then patch
+// the Airtable record. This eliminates reliance on webhook payload completeness.
+async function handleCallAnalyzed(call_id) {
+  const apiKey = process.env.RETELL_API_KEY;
+
+  if (!apiKey) {
+    console.error('[webhook/call_analyzed] RETELL_API_KEY not set — cannot auto-sync');
+    return;
+  }
+
+  console.log('[webhook/call_analyzed] fetching full call from Retell API for call_id:', call_id);
+
+  let callData;
+  try {
+    const res = await fetch(`https://api.retellai.com/v2/get-call/${call_id}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (!res.ok) {
+      console.error('[webhook/call_analyzed] Retell API returned', res.status, 'for call_id:', call_id);
+      return;
+    }
+    callData = await res.json();
+  } catch (err) {
+    console.error('[webhook/call_analyzed] Retell API fetch error:', err.message);
+    return;
+  }
+
+  const analysis = callData.call_analysis || {};
   const customData = analysis.custom_analysis_data || {};
-  const dvs = call.retell_llm_dynamic_variables || {};
 
-  // Log everything Retell sends so we can see exactly what came back
-  console.log('[webhook/call_analyzed] call_analysis keys:', Object.keys(analysis));
-  console.log('[webhook/call_analyzed] custom_analysis_data:', JSON.stringify(customData));
-  console.log('[webhook/call_analyzed] user_sentiment:', analysis.user_sentiment);
-  console.log('[webhook/call_analyzed] call_successful:', analysis.call_successful);
-  console.log('[webhook/call_analyzed] call_summary length:', analysis.call_summary?.length || 0);
+  console.log('[webhook/call_analyzed] API response — sentiment:', analysis.user_sentiment,
+    '| successful:', analysis.call_successful,
+    '| summary length:', analysis.call_summary?.length || 0,
+    '| custom keys:', Object.keys(customData));
 
-  // Build the enrichment patch — only include fields where we have real data
+  // Build the enrichment patch from authoritative API data
   const patch = {};
 
-  // Retell's built-in analysis fields
-  if (analysis.call_summary) {
-    patch.call_summary = analysis.call_summary;
-  }
-
-  if (analysis.user_sentiment) {
-    patch.sentiment = mapSentiment(analysis.user_sentiment);
-  }
+  if (analysis.call_summary)   patch.call_summary = analysis.call_summary;
+  if (analysis.user_sentiment) patch.sentiment    = mapSentiment(analysis.user_sentiment);
 
   if (typeof analysis.call_successful === 'boolean') {
     patch.resolution = analysis.call_successful ? 'resolved' : 'incomplete';
   }
 
-  // custom_analysis_data — map every known variable name.
-  // These keys must exactly match the variable names you defined in Retell's
-  // Post-Call Analysis tab (Agent → Post-Call Analysis → Add Variable).
+  // Map custom post-call analysis variables → Airtable fields.
+  // Keys must match the variable names in Retell → Agent → Post-Call Analysis.
   const CUSTOM_FIELD_MAP = {
-    // Retell variable name  →  our Airtable field name
-    intent:      'intent',
-    resolution:  'resolution',
-    sentiment:   'sentiment',
-    call_summary: 'call_summary',
-    summary:     'call_summary',   // common alternative name
-    caller_intent: 'intent',       // common alternative name
+    intent:        'intent',
+    resolution:    'resolution',
+    sentiment:     'sentiment',
+    call_summary:  'call_summary',
+    summary:       'call_summary',
+    caller_name:   'caller_name',
+    caller_intent: 'intent',
   };
 
   for (const [retellKey, airtableField] of Object.entries(CUSTOM_FIELD_MAP)) {
@@ -180,13 +197,8 @@ async function handleCallAnalyzed(call_id, call) {
     }
   }
 
-  // caller_name from custom data (enriches if Phase 1 had it empty)
-  if (customData.caller_name && !patch.caller_name) {
-    patch.caller_name = customData.caller_name;
-  }
-
   if (Object.keys(patch).length === 0) {
-    console.log('[webhook/call_analyzed] no enrichment data available — skipping update');
+    console.log('[webhook/call_analyzed] no enrichment data in API response — skipping update');
     return;
   }
 
@@ -194,26 +206,26 @@ async function handleCallAnalyzed(call_id, call) {
     let result = await airtable.updateInteractionRecord(call_id, patch);
 
     if (result.reason === 'not_found') {
-      // call_ended and call_analyzed often arrive within 30ms of each other.
-      // Phase 1 write is likely still in-flight — wait 3s and retry once.
-      console.log('[webhook/call_analyzed] record not found — retrying in 3s (Phase 1 write likely in flight)');
+      // call_ended and call_analyzed fire within ~20ms — Phase 1 write may still
+      // be in-flight. Wait 3s then retry once before falling back to a full create.
+      console.log('[webhook/call_analyzed] record not found — retrying in 3s');
       await new Promise(resolve => setTimeout(resolve, 3000));
       result = await airtable.updateInteractionRecord(call_id, patch);
     }
 
     if (result.reason === 'not_found') {
       // Still not found after retry — Phase 1 must have failed entirely.
-      // Create the record from full analysis data as a last resort.
+      // Create a minimal record from the API analysis data as a last resort.
       console.warn('[webhook/call_analyzed] record still missing after retry — creating fallback record');
-      const reason = call.disconnection_reason || 'unknown';
-      const escalated = reason === 'call_transfer' || dvs.escalated === 'true';
+      const reason = callData.disconnection_reason || 'unknown';
+      const escalated = reason === 'call_transfer';
       await airtable.writeInteractionRecord(
         {
-          caller_name: dvs.first_name || customData.caller_name || '',
-          customer_id: dvs.customer_id || customData.customer_id || '',
-          call_summary: patch.call_summary || buildPlaceholderSummary(reason, dvs),
+          caller_name: customData.caller_name || '',
+          customer_id: customData.customer_id || '',
+          call_summary: patch.call_summary || buildPlaceholderSummary(reason, {}),
           sentiment: patch.sentiment || 'Neutral',
-          intent: patch.intent || dvs.intent || 'other',
+          intent: patch.intent || 'other',
           resolution: patch.resolution || inferResolution(reason, escalated),
           escalated,
         },
