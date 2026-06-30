@@ -225,12 +225,14 @@ async function writeInteractionRecord(data, call_id) {
     const fields = {
       call_id,
       timestamp: new Date().toISOString(),
-      caller_name: data.caller_name || '',
-      customer_id: data.customer_id || '',
-      call_summary: data.call_summary || '',
-      sentiment: data.sentiment || 'Neutral',
-      intent: data.intent || 'other',
-      resolution: data.resolution || 'incomplete',
+      caller_name:    data.caller_name    || '',
+      caller_phone:   data.caller_phone   || '',
+      customer_id:    data.customer_id    || '',
+      claims_checked: data.claims_checked || '',
+      call_summary:   data.call_summary   || '',
+      sentiment:      data.sentiment      || 'Neutral',
+      intent:         data.intent         || 'other',
+      resolution:     data.resolution     || 'incomplete',
       ...(escalatedBool ? { escalated: 'Yes' } : {}),
     };
 

@@ -111,7 +111,9 @@ async function handleCallEnded(call_id, call) {
 
   const data = {
     caller_name,
+    caller_phone: call.from_number || '',   // always store the physical caller number
     customer_id,
+    claims_checked: '',                      // Phase 2 will fill this from transcript
     // Summary is placeholder — Phase 2 will overwrite with Retell's real analysis
     call_summary: buildPlaceholderSummary(reason, { first_name: caller_name, customer_id }),
     sentiment: 'Neutral',
@@ -164,10 +166,16 @@ async function handleCallAnalyzed(call_id) {
   const analysis = callData.call_analysis || {};
   const customData = analysis.custom_analysis_data || {};
 
+  // Parse the structured tool-call transcript to learn exactly which customers
+  // and claims were accessed during this call — works for multi-customer calls.
+  const activity = parseCallActivity(callData.transcript_with_tool_calls);
+
   console.log('[webhook/call_analyzed] API response — sentiment:', analysis.user_sentiment,
     '| successful:', analysis.call_successful,
     '| summary length:', analysis.call_summary?.length || 0,
-    '| custom keys:', Object.keys(customData));
+    '| custom keys:', Object.keys(customData),
+    '| customers served:', activity.customers,
+    '| claims checked:', activity.claims);
 
   // Build the enrichment patch from authoritative API data
   const patch = {};
@@ -195,6 +203,19 @@ async function handleCallAnalyzed(call_id) {
     if (customData[retellKey] !== undefined && customData[retellKey] !== '') {
       patch[airtableField] = customData[retellKey];
     }
+  }
+
+  // Enrich with caller phone and full activity derived from the transcript.
+  // These overwrite Phase 1's partial data with the complete picture.
+  if (callData.from_number) {
+    patch.caller_phone = callData.from_number;
+  }
+  if (activity.customers.length > 0) {
+    // Comma-separated when multiple customers were served in one call
+    patch.customer_id = activity.customers.join(', ');
+  }
+  if (activity.claims.length > 0) {
+    patch.claims_checked = activity.claims.join(', ');
   }
 
   if (Object.keys(patch).length === 0) {
@@ -241,6 +262,59 @@ async function handleCallAnalyzed(call_id) {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Parses Retell's transcript_with_tool_calls array to extract every customer ID
+ * authenticated and every claim ID accessed during the call.
+ *
+ * transcript_with_tool_calls entries with role="tool_call_result" contain the
+ * raw JSON string that our backend returned to the agent. We parse each one and
+ * look for known shapes from lookup_customer and get_claim_status responses.
+ *
+ * This is the authoritative source for multi-customer, multi-claim calls —
+ * it works without any agent changes because the data is already in the transcript.
+ */
+function parseCallActivity(transcriptWithToolCalls) {
+  const customers = new Set();
+  const claims    = new Set();
+
+  if (!Array.isArray(transcriptWithToolCalls)) return { customers: [], claims: [] };
+
+  for (const entry of transcriptWithToolCalls) {
+    if (entry.role !== 'tool_call_result') continue;
+
+    let result;
+    try {
+      result = typeof entry.content === 'string'
+        ? JSON.parse(entry.content)
+        : entry.content;
+    } catch {
+      continue; // non-JSON content — skip
+    }
+
+    if (!result || !result.found) continue;
+
+    // lookup_customer result: { found, customer_id, first_name, last_name }
+    if (result.customer_id) {
+      customers.add(result.customer_id);
+    }
+
+    // get_claim_status single result: { found, single, claim_id, ... }
+    if (result.claim_id) {
+      claims.add(result.claim_id);
+    }
+
+    // get_claim_status multi result: { found, multiple, claims: [{claim_id, ...}] }
+    if (Array.isArray(result.claims)) {
+      result.claims.forEach(c => { if (c.claim_id) claims.add(c.claim_id); });
+    }
+  }
+
+  return {
+    customers: [...customers],
+    claims:    [...claims],
+  };
+}
 
 /**
  * Maps Retell's disconnection_reason to our resolution values.
