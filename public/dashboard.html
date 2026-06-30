@@ -23,6 +23,7 @@
       --amber-lt:  #fffbeb;
       --navy:      #0f172a;
       --mono:      'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      --drawer-w:  480px;
     }
 
     body {
@@ -43,6 +44,7 @@
       align-items: center;
       justify-content: space-between;
       gap: 16px;
+      position: sticky; top: 0; z-index: 100;
     }
     .brand { display: flex; align-items: center; gap: 12px; }
     .brand-name { font-size: 15px; font-weight: 600; color: #f8fafc; letter-spacing: -0.2px; }
@@ -85,15 +87,13 @@
     .stat-value.green  { color: var(--green); }
     .stat-value.red    { color: var(--red); }
     .stat-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
-
-    /* Fail mode card gets a red tint when active */
     .stat-card.fail-active { background: var(--red-lt); border-color: #fca5a5; }
     .stat-card.fail-active .stat-value { color: var(--red); }
 
     /* ── Two-column grid ──────────────────────────────────── */
     .grid-2 {
       display: grid;
-      grid-template-columns: 1fr 320px;
+      grid-template-columns: 1fr 300px;
       gap: 16px;
       align-items: start;
     }
@@ -120,14 +120,13 @@
     table { width: 100%; border-collapse: collapse; }
     th {
       text-align: left;
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
+      font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.5px;
       color: var(--muted);
       padding: 8px 16px;
       border-bottom: 1px solid var(--border);
       background: #fafbfc;
+      white-space: nowrap;
     }
     td {
       padding: 10px 16px;
@@ -136,7 +135,11 @@
       vertical-align: middle;
     }
     tr:last-child td { border-bottom: none; }
-    tr:hover td { background: #fafbfc; }
+
+    /* Clickable rows */
+    .interaction-row { cursor: pointer; transition: background 0.1s; }
+    .interaction-row:hover td { background: #f0f4ff; }
+    .interaction-row.active td { background: var(--accent-lt); }
 
     .call-id { font-family: var(--mono); font-size: 11px; color: var(--muted); }
     .time-cell { font-size: 12px; color: var(--muted); white-space: nowrap; }
@@ -144,8 +147,7 @@
     /* ── Badges ──────────────────────────────────────────── */
     .badge {
       display: inline-block;
-      font-size: 11px;
-      font-weight: 600;
+      font-size: 11px; font-weight: 600;
       padding: 2px 8px;
       border-radius: 100px;
       white-space: nowrap;
@@ -155,6 +157,7 @@
     .badge-amber  { background: var(--amber-lt);  color: var(--amber); }
     .badge-blue   { background: var(--accent-lt); color: var(--accent); }
     .badge-gray   { background: #f1f5f9;          color: #475569; }
+    .badge-purple { background: #f5f3ff;          color: #7c3aed; }
 
     /* ── Demo Controls panel ─────────────────────────────── */
     .control-group { margin-bottom: 16px; }
@@ -175,13 +178,11 @@
     .btn-primary { background: var(--accent); color: #fff; }
     .btn-success { background: var(--green);  color: #fff; }
     .btn-sm { font-size: 12px; padding: 5px 10px; }
-
     .btn-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
-    select, input[type="number"] {
+    select, input[type="text"] {
       font-size: 13px; padding: 7px 10px; border: 1px solid var(--border);
-      border-radius: 6px; color: var(--text); background: var(--surface);
-      outline: none;
+      border-radius: 6px; color: var(--text); background: var(--surface); outline: none;
     }
     select:focus, input:focus { border-color: var(--accent); }
 
@@ -191,20 +192,18 @@
       border-bottom: 1px solid var(--border);
       font-size: 12px;
       display: grid;
-      grid-template-columns: 100px 1fr auto;
+      grid-template-columns: 90px 1fr auto;
       gap: 8px;
       align-items: center;
     }
     .log-entry:last-child { border-bottom: none; }
     .log-time { font-family: var(--mono); font-size: 11px; color: var(--muted); }
-    .log-from { color: var(--text); }
     .log-empty { padding: 16px 12px; color: var(--muted); font-size: 12px; text-align: center; }
 
     /* ── Status bar ───────────────────────────────────────── */
     .status-bar {
       display: flex; gap: 16px; align-items: center;
-      padding: 8px 0;
-      margin-bottom: 20px;
+      padding: 8px 0; margin-bottom: 20px;
     }
     .status-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
     .status-dot { width: 6px; height: 6px; border-radius: 50%; }
@@ -223,14 +222,110 @@
       font-size: 13px;
       opacity: 0; pointer-events: none;
       transition: opacity 0.2s;
-      z-index: 999;
+      z-index: 9999;
     }
     #toast.show { opacity: 1; }
+
+    /* ── Call Detail Drawer ───────────────────────────────── */
+    #drawer-backdrop {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(15, 23, 42, 0.35);
+      z-index: 200;
+      backdrop-filter: blur(1px);
+    }
+    #drawer-backdrop.open { display: block; }
+
+    #call-drawer {
+      position: fixed;
+      top: 0; right: 0; bottom: 0;
+      width: var(--drawer-w);
+      max-width: 100vw;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      box-shadow: -8px 0 32px rgba(0,0,0,0.12);
+      z-index: 201;
+      display: flex; flex-direction: column;
+      transform: translateX(100%);
+      transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+      overflow: hidden;
+    }
+    #call-drawer.open { transform: translateX(0); }
+
+    .drawer-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: flex-start;
+      gap: 12px;
+      background: var(--navy);
+      color: #f8fafc;
+      flex-shrink: 0;
+    }
+    .drawer-caller-name { font-size: 17px; font-weight: 600; color: #f8fafc; margin-bottom: 4px; }
+    .drawer-call-id { font-family: var(--mono); font-size: 10px; color: #94a3b8; }
+    .drawer-timestamp { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+
+    .drawer-close {
+      background: none; border: none; cursor: pointer;
+      color: #94a3b8; font-size: 20px; line-height: 1;
+      padding: 2px 6px; border-radius: 4px;
+      transition: color 0.15s, background 0.15s;
+      flex-shrink: 0;
+    }
+    .drawer-close:hover { color: #f8fafc; background: rgba(255,255,255,0.1); }
+
+    .drawer-body {
+      overflow-y: auto; flex: 1;
+      padding: 0;
+    }
+
+    .drawer-section {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .drawer-section:last-child { border-bottom: none; }
+
+    .drawer-section-title {
+      font-size: 10px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.7px;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    .drawer-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+
+    .drawer-kv { display: flex; flex-direction: column; gap: 8px; }
+    .drawer-kv-row { display: flex; gap: 12px; align-items: baseline; }
+    .drawer-key {
+      font-size: 11px; font-weight: 600;
+      color: var(--muted);
+      width: 110px; flex-shrink: 0;
+    }
+    .drawer-val { font-size: 13px; color: var(--text); word-break: break-all; }
+    .drawer-val.mono { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+    .drawer-val.empty { color: var(--muted); font-style: italic; }
+
+    .drawer-summary {
+      font-size: 13px;
+      line-height: 1.65;
+      color: var(--text);
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px 14px;
+      white-space: pre-wrap;
+    }
+    .drawer-summary.placeholder { color: var(--muted); font-style: italic; }
+
+    .claims-list { display: flex; flex-wrap: wrap; gap: 6px; }
+
+    .drawer-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
     /* ── Responsive ───────────────────────────────────────── */
     @media (max-width: 900px) {
       .grid-2 { grid-template-columns: 1fr; }
       .stats-row { grid-template-columns: repeat(2, 1fr); }
+      #call-drawer { width: 100vw; }
     }
   </style>
 </head>
@@ -297,7 +392,7 @@
 
   <div class="grid-2">
 
-    <!-- Left: interaction table + inbound log -->
+    <!-- Left: interaction table + inbound log + callbacks -->
     <div style="display:flex;flex-direction:column;gap:16px;">
 
       <div class="panel">
@@ -311,16 +406,15 @@
               <tr>
                 <th>Time</th>
                 <th>Caller</th>
-                <th>Customer</th>
+                <th>Customer(s)</th>
                 <th>Intent</th>
                 <th>Resolution</th>
                 <th>Sentiment</th>
-                <th>Escalated</th>
                 <th></th>
               </tr>
             </thead>
             <tbody id="interactions-body">
-              <tr class="empty-row"><td colspan="8">Loading...</td></tr>
+              <tr class="empty-row"><td colspan="7">Loading...</td></tr>
             </tbody>
           </table>
         </div>
@@ -329,7 +423,7 @@
       <div class="panel">
         <div class="panel-header">
           <span class="panel-title">Callback Requests</span>
-          <span style="font-size:11px;color:var(--muted)">written to Airtable via in-call tool</span>
+          <span style="font-size:11px;color:var(--muted)">written via in-call tool</span>
         </div>
         <div class="panel-body no-pad">
           <table>
@@ -372,7 +466,7 @@
 
           <div class="control-group">
             <div class="control-label">Failure Simulation</div>
-            <div class="control-desc">Inject a backend failure mid-call. All tool endpoints return 500 for the selected duration, then auto-recover. Triggers graceful degradation in the agent.</div>
+            <div class="control-desc">Inject a backend failure mid-call. All tool endpoints return 500 for the selected duration, then auto-recover.</div>
             <div class="btn-row">
               <select id="fail-duration">
                 <option value="15">15 seconds</option>
@@ -380,30 +474,30 @@
                 <option value="60">60 seconds</option>
                 <option value="120">2 minutes</option>
               </select>
-              <button class="btn btn-danger" onclick="triggerFail()">Trigger Fail</button>
-              <button class="btn btn-success" onclick="recover()">Recover Now</button>
+              <button class="btn btn-danger btn-sm" onclick="triggerFail()">Trigger Fail</button>
+              <button class="btn btn-success btn-sm" onclick="recover()">Recover</button>
             </div>
           </div>
 
-          <hr style="border:none;border-top:1px solid var(--border);margin:16px 0" />
+          <hr style="border:none;border-top:1px solid var(--border);margin:14px 0" />
 
           <div class="control-group">
             <div class="control-label">Slack Integration</div>
-            <div class="control-desc">Fire a test escalation alert to confirm the Slack webhook is wired correctly.</div>
+            <div class="control-desc">Fire a test escalation alert to verify the Slack webhook.</div>
             <div class="btn-row">
-              <button class="btn btn-primary" onclick="testSlack()">Send Test Alert</button>
+              <button class="btn btn-primary btn-sm" onclick="testSlack()">Send Test Alert</button>
               <span id="slack-result" style="font-size:12px;color:var(--muted)"></span>
             </div>
           </div>
 
-          <hr style="border:none;border-top:1px solid var(--border);margin:16px 0" />
+          <hr style="border:none;border-top:1px solid var(--border);margin:14px 0" />
 
           <div class="control-group">
             <div class="control-label">Quick Lookup</div>
-            <div class="control-desc">Look up a customer by phone number directly.</div>
+            <div class="control-desc">Look up a customer by phone number.</div>
             <div class="btn-row" style="margin-bottom:8px;">
               <input type="text" id="lookup-phone" placeholder="+12125550101" style="flex:1;min-width:0" />
-              <button class="btn btn-outline" onclick="lookupCustomer()">Lookup</button>
+              <button class="btn btn-outline btn-sm" onclick="lookupCustomer()">Lookup</button>
             </div>
             <div id="lookup-result" style="font-size:12px;line-height:1.6;color:var(--muted)"></div>
           </div>
@@ -416,7 +510,7 @@
           <span class="panel-title">Endpoint Reference</span>
         </div>
         <div class="panel-body" style="padding:12px 16px;">
-          <div style="display:flex;flex-direction:column;gap:6px;">
+          <div style="display:flex;flex-direction:column;gap:5px;">
             <div style="font-size:11px;display:flex;gap:8px;align-items:baseline">
               <span style="font-family:var(--mono);color:var(--accent);width:36px;flex-shrink:0">POST</span>
               <span style="font-family:var(--mono);color:var(--muted)">/tools/lookup-customer</span>
@@ -435,23 +529,19 @@
             </div>
             <div style="font-size:11px;display:flex;gap:8px;align-items:baseline">
               <span style="font-family:var(--mono);color:var(--accent);width:36px;flex-shrink:0">POST</span>
-              <span style="font-family:var(--mono);color:var(--muted)">/tools/write-interaction-record</span>
+              <span style="font-family:var(--mono);color:var(--muted)">/tools/request-callback</span>
             </div>
-            <div style="font-size:11px;display:flex;gap:8px;align-items:baseline;margin-top:4px;padding-top:6px;border-top:1px solid var(--border)">
+            <div style="font-size:11px;display:flex;gap:8px;align-items:baseline;margin-top:4px;padding-top:5px;border-top:1px solid var(--border)">
               <span style="font-family:var(--mono);color:#16a34a;width:36px;flex-shrink:0">GET</span>
               <span style="font-family:var(--mono);color:var(--muted)">/health</span>
             </div>
             <div style="font-size:11px;display:flex;gap:8px;align-items:baseline">
               <span style="font-family:var(--mono);color:#16a34a;width:36px;flex-shrink:0">GET</span>
-              <span style="font-family:var(--mono);color:var(--muted)">/demo/fail?duration=30</span>
+              <span style="font-family:var(--mono);color:var(--muted)">/webhooks/event-log</span>
             </div>
             <div style="font-size:11px;display:flex;gap:8px;align-items:baseline">
               <span style="font-family:var(--mono);color:#16a34a;width:36px;flex-shrink:0">GET</span>
-              <span style="font-family:var(--mono);color:var(--muted)">/demo/recover</span>
-            </div>
-            <div style="font-size:11px;display:flex;gap:8px;align-items:baseline">
-              <span style="font-family:var(--mono);color:#16a34a;width:36px;flex-shrink:0">GET</span>
-              <span style="font-family:var(--mono);color:var(--muted)">/webhook/inbound</span>
+              <span style="font-family:var(--mono);color:var(--muted)">/api/sync-call/:id</span>
             </div>
           </div>
         </div>
@@ -461,9 +551,73 @@
   </div>
 </div>
 
+<!-- ── Call Detail Drawer ──────────────────────────────────────────── -->
+<div id="drawer-backdrop" onclick="closeDrawer()"></div>
+
+<div id="call-drawer" role="dialog" aria-modal="true">
+  <div class="drawer-header">
+    <div>
+      <div class="drawer-caller-name" id="d-caller-name">—</div>
+      <div class="drawer-call-id" id="d-call-id">—</div>
+      <div class="drawer-timestamp" id="d-timestamp">—</div>
+    </div>
+    <button class="drawer-close" onclick="closeDrawer()" title="Close">✕</button>
+  </div>
+
+  <div class="drawer-body">
+
+    <!-- Status badges -->
+    <div class="drawer-section">
+      <div class="drawer-section-title">Status</div>
+      <div class="drawer-badges" id="d-badges"></div>
+    </div>
+
+    <!-- Caller info -->
+    <div class="drawer-section">
+      <div class="drawer-section-title">Caller Information</div>
+      <div class="drawer-kv">
+        <div class="drawer-kv-row">
+          <span class="drawer-key">Phone</span>
+          <span class="drawer-val mono" id="d-phone">—</span>
+        </div>
+        <div class="drawer-kv-row">
+          <span class="drawer-key">Customer(s)</span>
+          <span class="drawer-val" id="d-customers">—</span>
+        </div>
+        <div class="drawer-kv-row">
+          <span class="drawer-key">Claims Checked</span>
+          <div class="claims-list" id="d-claims"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Call Summary -->
+    <div class="drawer-section">
+      <div class="drawer-section-title">Call Summary</div>
+      <div class="drawer-summary" id="d-summary">—</div>
+    </div>
+
+    <!-- Actions -->
+    <div class="drawer-section">
+      <div class="drawer-section-title">Actions</div>
+      <div class="drawer-actions">
+        <button class="btn btn-outline btn-sm" id="d-sync-btn" onclick="syncFromDrawer()">
+          ↻ Sync from Retell API
+        </button>
+        <span id="d-sync-status" style="font-size:12px;color:var(--muted);align-self:center"></span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
+  // ── State ─────────────────────────────────────────────────────────────────
+  let interactionCache = {};   // call_id → interaction object
+  let activeCallId     = null;
+
   // ── Helpers ──────────────────────────────────────────────────────────────
   function fmt(ts) {
     if (!ts) return '—';
@@ -471,8 +625,16 @@
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   }
 
+  function fmtLong(ts) {
+    if (!ts) return '—';
+    return new Date(ts).toLocaleString([], {
+      month: 'short', day: 'numeric', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+  }
+
   function sentimentBadge(s) {
-    const map = { Positive: 'badge-green', Negative: 'badge-red', Neutral: 'badge-gray', Frustrated: 'badge-amber' };
+    const map = { Positive: 'badge-green', Negative: 'badge-red', Neutral: 'badge-gray' };
     return `<span class="badge ${map[s] || 'badge-gray'}">${s || 'Neutral'}</span>`;
   }
 
@@ -493,6 +655,118 @@
     setTimeout(() => t.classList.remove('show'), duration);
   }
 
+  function escHtml(str) {
+    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function fmtUptime(s) {
+    if (!s) return '—';
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${sec}s`;
+    return `${sec}s`;
+  }
+
+  // ── Call Detail Drawer ────────────────────────────────────────────────────
+  function openDrawer(call_id) {
+    const i = interactionCache[call_id];
+    if (!i) return;
+
+    activeCallId = call_id;
+
+    // Header
+    document.getElementById('d-caller-name').textContent = i.caller_name || 'Unknown Caller';
+    document.getElementById('d-call-id').textContent     = call_id;
+    document.getElementById('d-timestamp').textContent   = fmtLong(i.timestamp);
+
+    // Badges
+    const badgeRow = document.getElementById('d-badges');
+    const escalatedBadge = i.escalated
+      ? '<span class="badge badge-red">Escalated</span>'
+      : '<span class="badge badge-gray">Not escalated</span>';
+    badgeRow.innerHTML = `
+      ${sentimentBadge(i.sentiment)}
+      ${resolutionBadge(i.resolution)}
+      ${intentBadge(i.intent)}
+      ${escalatedBadge}
+    `;
+
+    // Caller info
+    const phone = i.caller_phone;
+    document.getElementById('d-phone').textContent = phone || '—';
+    document.getElementById('d-phone').className   = phone ? 'drawer-val mono' : 'drawer-val empty';
+
+    const customers = i.customer_id;
+    document.getElementById('d-customers').textContent = customers || 'Anonymous (FAQ/no auth)';
+    document.getElementById('d-customers').className   = customers ? 'drawer-val' : 'drawer-val empty';
+
+    const claimsList = document.getElementById('d-claims');
+    if (i.claims_checked) {
+      const claims = i.claims_checked.split(',').map(c => c.trim()).filter(Boolean);
+      claimsList.innerHTML = claims
+        .map(c => `<span class="badge badge-purple">${escHtml(c)}</span>`)
+        .join('');
+    } else {
+      claimsList.innerHTML = '<span style="font-size:13px;color:var(--muted);font-style:italic">None recorded</span>';
+    }
+
+    // Summary
+    const summaryEl = document.getElementById('d-summary');
+    const isPlaceholder = !i.call_summary || i.call_summary.includes('[Awaiting post-call analysis]');
+    summaryEl.textContent = i.call_summary || 'No summary available yet.';
+    summaryEl.className   = isPlaceholder ? 'drawer-summary placeholder' : 'drawer-summary';
+
+    // Sync button
+    const isSyncable = call_id && !call_id.startsWith('call_test') && !call_id.startsWith('race_') && !call_id.startsWith('manual_') && !call_id.startsWith('live-test');
+    document.getElementById('d-sync-btn').style.display = isSyncable ? '' : 'none';
+    document.getElementById('d-sync-status').textContent = '';
+
+    // Highlight active row
+    document.querySelectorAll('.interaction-row').forEach(r => r.classList.remove('active'));
+    const activeRow = document.querySelector(`[data-call-id="${CSS.escape(call_id)}"]`);
+    if (activeRow) activeRow.classList.add('active');
+
+    document.getElementById('drawer-backdrop').classList.add('open');
+    document.getElementById('call-drawer').classList.add('open');
+  }
+
+  function closeDrawer() {
+    document.getElementById('drawer-backdrop').classList.remove('open');
+    document.getElementById('call-drawer').classList.remove('open');
+    document.querySelectorAll('.interaction-row').forEach(r => r.classList.remove('active'));
+    activeCallId = null;
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeDrawer();
+  });
+
+  // ── Sync from drawer ──────────────────────────────────────────────────────
+  async function syncFromDrawer() {
+    if (!activeCallId) return;
+    const statusEl = document.getElementById('d-sync-status');
+    statusEl.textContent = 'Fetching…';
+    try {
+      const r  = await fetch(`/api/sync-call/${activeCallId}`);
+      const d  = await r.json();
+      if (d.synced) {
+        statusEl.style.color = 'var(--green)';
+        statusEl.textContent = `Updated: ${d.fields_updated.join(', ')}`;
+        // Refresh data and reopen drawer with new data
+        await refresh();
+        openDrawer(activeCallId);
+      } else {
+        statusEl.style.color = 'var(--amber)';
+        statusEl.textContent = 'No new analysis data yet.';
+      }
+    } catch {
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = 'Sync failed.';
+    }
+  }
+
   // ── Data fetch ───────────────────────────────────────────────────────────
   async function refresh() {
     let data, callbackData;
@@ -508,83 +782,90 @@
 
     const { health, stats, interactions, inbound_log } = data;
 
-    // Callbacks table
+    // ── Update interaction cache ──────────────────────────────────────────
+    interactionCache = {};
+    (interactions || []).forEach(i => { interactionCache[i.call_id] = i; });
+
+    // ── Callbacks table ───────────────────────────────────────────────────
     const cbBody = document.getElementById('callbacks-body');
     const callbacks = callbackData.callbacks || [];
     if (callbacks.length === 0) {
-      cbBody.innerHTML = '<tr class="empty-row"><td colspan="5">No callback requests yet. Ask the agent "can someone call me back?" to create one.</td></tr>';
+      cbBody.innerHTML = '<tr class="empty-row"><td colspan="5">No callback requests yet.</td></tr>';
     } else {
       cbBody.innerHTML = callbacks.map(c => `
         <tr>
           <td class="call-id">${escHtml(c.callback_id)}</td>
           <td>${escHtml(c.caller_name)}</td>
           <td>${escHtml(c.preferred_time || '—')}</td>
-          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(c.reason || '—')}</td>
+          <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(c.reason || '—')}</td>
           <td><span class="badge ${c.status === 'Pending' ? 'badge-amber' : 'badge-green'}">${escHtml(c.status)}</span></td>
         </tr>
       `).join('');
     }
 
-    // Status bar
-    const backendDot = document.getElementById('dot-backend');
+    // ── Status bar ────────────────────────────────────────────────────────
+    document.getElementById('dot-backend').className  = 'status-dot ' + (health.status === 'ok' ? 'green' : 'red');
     document.getElementById('label-backend').textContent = 'Backend ' + (health.status === 'ok' ? 'OK' : 'ERROR');
-    backendDot.className = 'status-dot ' + (health.status === 'ok' ? 'green' : 'red');
-
-    const slackDot = document.getElementById('dot-slack');
-    slackDot.className = 'status-dot ' + (health.slack_configured ? 'green' : 'gray');
+    document.getElementById('dot-slack').className    = 'status-dot ' + (health.slack_configured ? 'green' : 'gray');
     document.getElementById('label-slack').textContent = 'Slack ' + (health.slack_configured ? 'configured' : 'not configured');
-
-    const airtableDot = document.getElementById('dot-airtable');
-    airtableDot.className = 'status-dot ' + (health.airtable_ok ? 'green' : 'red');
+    document.getElementById('dot-airtable').className = 'status-dot ' + (health.airtable_ok ? 'green' : 'red');
     document.getElementById('label-airtable').textContent = 'Airtable ' + (health.airtable_ok ? 'OK' : 'config error');
-
     document.getElementById('uptime-label').textContent = 'uptime: ' + fmtUptime(health.uptime_seconds);
 
-    // Stat cards
-    document.getElementById('stat-total').textContent = stats.total_today;
+    // ── Stat cards ────────────────────────────────────────────────────────
+    document.getElementById('stat-total').textContent    = stats.total_today;
     document.getElementById('stat-resolved').textContent = stats.resolved_today;
     document.getElementById('stat-escalated').textContent = stats.escalated_today;
 
     const failCard = document.getElementById('fail-card');
     const failStat = document.getElementById('stat-fail');
-    const failSub  = document.getElementById('fail-sub');
     if (health.failMode) {
       failCard.classList.add('fail-active');
       failStat.textContent = 'ON';
-      failSub.textContent  = 'simulated failure active';
+      document.getElementById('fail-sub').textContent = 'simulated failure active';
     } else {
       failCard.classList.remove('fail-active');
       failStat.textContent = 'OFF';
-      failSub.textContent  = 'backend responding normally';
+      document.getElementById('fail-sub').textContent = 'backend responding normally';
     }
 
-    // Interactions table
+    // ── Interactions table ────────────────────────────────────────────────
     const tbody = document.getElementById('interactions-body');
     if (!interactions || interactions.length === 0) {
       tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No interactions recorded yet. Make a call to see data here.</td></tr>';
     } else {
-      tbody.innerHTML = interactions.map((i) => `
-        <tr>
-          <td class="time-cell">${fmt(i.timestamp)}</td>
-          <td>${escHtml(i.caller_name)}</td>
-          <td class="call-id">${escHtml(i.customer_id)}</td>
-          <td>${intentBadge(i.intent)}</td>
-          <td>${resolutionBadge(i.resolution)}</td>
-          <td>${sentimentBadge(i.sentiment)}</td>
-          <td>${i.escalated
-            ? '<span class="badge badge-red">Yes</span>'
-            : '<span class="badge badge-gray">No</span>'}
-          </td>
-          <td>
-            ${i.call_id && !i.call_id.startsWith('call_test') && !i.call_id.startsWith('race_') && !i.call_id.startsWith('manual_') && !i.call_id.startsWith('live-test')
-              ? `<button class="btn btn-outline btn-sm" onclick="syncCall('${escHtml(i.call_id)}')" title="Re-fetch analysis from Retell API">Sync</button>`
-              : ''}
-          </td>
-        </tr>
-      `).join('');
+      tbody.innerHTML = interactions.map((i) => {
+        const hasSummary = i.call_summary && !i.call_summary.includes('[Awaiting');
+        const hasPhone   = !!i.caller_phone;
+        const hasClaims  = !!i.claims_checked;
+        const hints = [
+          hasSummary ? '📋' : '',
+          hasPhone   ? '📞' : '',
+          hasClaims  ? '🗂' : '',
+        ].filter(Boolean).join(' ');
+
+        return `
+          <tr class="interaction-row" data-call-id="${escHtml(i.call_id)}" onclick="openDrawer('${escHtml(i.call_id)}')">
+            <td class="time-cell">${fmt(i.timestamp)}</td>
+            <td>
+              <div style="font-weight:500">${escHtml(i.caller_name)}</div>
+              ${hints ? `<div style="font-size:10px;margin-top:2px">${hints}</div>` : ''}
+            </td>
+            <td class="call-id">${escHtml(i.customer_id) || '<span style="color:var(--muted);font-style:italic">anon</span>'}</td>
+            <td>${intentBadge(i.intent)}</td>
+            <td>${resolutionBadge(i.resolution)}</td>
+            <td>${sentimentBadge(i.sentiment)}</td>
+            <td>
+              <button class="btn btn-outline btn-sm" onclick="event.stopPropagation();openDrawer('${escHtml(i.call_id)}')">
+                View →
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
     }
 
-    // Inbound call log
+    // ── Inbound call log ──────────────────────────────────────────────────
     const logBody = document.getElementById('inbound-log-body');
     if (!inbound_log || inbound_log.length === 0) {
       logBody.innerHTML = '<div class="log-empty">No inbound calls received yet.</div>';
@@ -593,36 +874,27 @@
         const badge = entry.result === 'found'
           ? '<span class="badge badge-green">identified</span>'
           : entry.result === 'not_found'
-          ? '<span class="badge badge-gray">unknown caller</span>'
+          ? '<span class="badge badge-gray">unknown</span>'
           : entry.result === 'no_number'
           ? '<span class="badge badge-amber">no number</span>'
           : `<span class="badge badge-red">${escHtml(entry.result)}</span>`;
         return `<div class="log-entry">
           <span class="log-time">${fmt(entry.ts)}</span>
-          <span class="log-from">${escHtml(entry.from || '—')}</span>
+          <span>${escHtml(entry.from || '—')}</span>
           ${badge}
         </div>`;
       }).join('');
     }
 
     document.getElementById('last-refresh').textContent = 'updated ' + new Date().toLocaleTimeString();
+
+    // Re-open drawer with fresh data if it was open
+    if (activeCallId && interactionCache[activeCallId]) {
+      openDrawer(activeCallId);
+    }
   }
 
-  function fmtUptime(s) {
-    if (!s) return '—';
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const sec = s % 60;
-    if (h > 0) return `${h}h ${m}m`;
-    if (m > 0) return `${m}m ${sec}s`;
-    return `${sec}s`;
-  }
-
-  function escHtml(str) {
-    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  }
-
-  // ── Demo controls ────────────────────────────────────────────────────────
+  // ── Demo controls ─────────────────────────────────────────────────────────
   async function triggerFail() {
     const dur = document.getElementById('fail-duration').value;
     const r = await fetch(`/demo/fail?duration=${dur}`);
@@ -648,7 +920,7 @@
         el.textContent = 'Sent! Check your Slack channel.';
       } else {
         el.style.color = 'var(--red)';
-        el.textContent = d.error || 'Failed — check SLACK_WEBHOOK_URL env var.';
+        el.textContent = d.error || 'Failed — check SLACK_WEBHOOK_URL.';
       }
     } catch {
       el.style.color = 'var(--red)';
@@ -681,24 +953,7 @@
     }
   }
 
-  // ── Sync call from Retell API ────────────────────────────────────────────
-  async function syncCall(call_id) {
-    showToast(`Fetching analysis for …${call_id.slice(-8)}`, 4000);
-    try {
-      const r = await fetch(`/api/sync-call/${call_id}`);
-      const d = await r.json();
-      if (d.synced) {
-        showToast(`Synced — updated: ${d.fields_updated.join(', ')}`);
-        setTimeout(refresh, 800);
-      } else {
-        showToast('No analysis data available for this call yet.');
-      }
-    } catch {
-      showToast('Sync request failed.');
-    }
-  }
-
-  // ── Auto-refresh every 30s ───────────────────────────────────────────────
+  // ── Auto-refresh every 30s ────────────────────────────────────────────────
   refresh();
   setInterval(refresh, 30000);
 </script>

@@ -360,20 +360,29 @@ async function getRecentInteractions(limit = 20) {
       .select({
         sort: [{ field: 'timestamp', direction: 'desc' }],
         maxRecords: limit,
-        fields: ['call_id', 'timestamp', 'caller_name', 'customer_id', 'sentiment', 'intent', 'resolution', 'escalated'],
+        fields: [
+          'call_id', 'timestamp',
+          'caller_name', 'caller_phone',
+          'customer_id', 'claims_checked',
+          'sentiment', 'intent', 'resolution', 'escalated',
+          'call_summary',
+        ],
       })
       .firstPage()
   );
 
   return (records || []).map((r) => ({
-    call_id: r.fields.call_id || '',
-    timestamp: r.fields.timestamp || '',
-    caller_name: r.fields.caller_name || 'Unknown',
-    customer_id: r.fields.customer_id || '',
-    sentiment: r.fields.sentiment || 'Neutral',
-    intent: r.fields.intent || 'other',
-    resolution: r.fields.resolution || 'incomplete',
-    escalated: r.fields.escalated === 'Yes',
+    call_id:        r.fields.call_id        || '',
+    timestamp:      r.fields.timestamp      || '',
+    caller_name:    r.fields.caller_name    || 'Unknown',
+    caller_phone:   r.fields.caller_phone   || '',
+    customer_id:    r.fields.customer_id    || '',
+    claims_checked: r.fields.claims_checked || '',
+    sentiment:      r.fields.sentiment      || 'Neutral',
+    intent:         r.fields.intent         || 'other',
+    resolution:     r.fields.resolution     || 'incomplete',
+    escalated:      r.fields.escalated === 'Yes',
+    call_summary:   r.fields.call_summary   || '',
   }));
 }
 
