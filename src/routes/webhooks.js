@@ -55,7 +55,17 @@ router.post('/call-end', async (req, res) => {
 
   const call_id = call.call_id;
   console.log(`[webhook/${event || 'unknown'}] call_id:`, call_id);
-  logEvent({ event: event || 'unknown', call_id, disconnection_reason: call.disconnection_reason || null });
+  logEvent({
+    event: event || 'unknown',
+    call_id,
+    disconnection_reason: call.disconnection_reason || null,
+    // Capture analysis summary if present (call_analyzed events only)
+    sentiment: call.call_analysis?.user_sentiment || null,
+    call_successful: call.call_analysis?.call_successful ?? null,
+    custom_keys: call.call_analysis?.custom_analysis_data
+      ? Object.keys(call.call_analysis.custom_analysis_data)
+      : null,
+  });
 
   if (event === 'call_ended') {
     await handleCallEnded(call_id, call);
@@ -104,27 +114,52 @@ async function handleCallAnalyzed(call_id, call) {
   const customData = analysis.custom_analysis_data || {};
   const dvs = call.retell_llm_dynamic_variables || {};
 
+  // Log everything Retell sends so we can see exactly what came back
+  console.log('[webhook/call_analyzed] call_analysis keys:', Object.keys(analysis));
+  console.log('[webhook/call_analyzed] custom_analysis_data:', JSON.stringify(customData));
+  console.log('[webhook/call_analyzed] user_sentiment:', analysis.user_sentiment);
+  console.log('[webhook/call_analyzed] call_successful:', analysis.call_successful);
+  console.log('[webhook/call_analyzed] call_summary length:', analysis.call_summary?.length || 0);
+
   // Build the enrichment patch — only include fields where we have real data
   const patch = {};
 
+  // Retell's built-in analysis fields
   if (analysis.call_summary) {
     patch.call_summary = analysis.call_summary;
   }
 
-  const sentiment = mapSentiment(analysis.user_sentiment);
-  if (sentiment !== 'Neutral' || analysis.user_sentiment) {
-    // Only overwrite if Retell gave us a real sentiment signal
-    patch.sentiment = sentiment;
+  if (analysis.user_sentiment) {
+    patch.sentiment = mapSentiment(analysis.user_sentiment);
   }
 
-  // Retell's call_successful is a stronger resolution signal than disconnection_reason
   if (typeof analysis.call_successful === 'boolean') {
     patch.resolution = analysis.call_successful ? 'resolved' : 'incomplete';
   }
 
-  // custom_analysis_data is populated if you configure a post-call analysis prompt in Retell
-  if (customData.intent) patch.intent = customData.intent;
-  if (customData.resolution) patch.resolution = customData.resolution;
+  // custom_analysis_data — map every known variable name.
+  // These keys must exactly match the variable names you defined in Retell's
+  // Post-Call Analysis tab (Agent → Post-Call Analysis → Add Variable).
+  const CUSTOM_FIELD_MAP = {
+    // Retell variable name  →  our Airtable field name
+    intent:      'intent',
+    resolution:  'resolution',
+    sentiment:   'sentiment',
+    call_summary: 'call_summary',
+    summary:     'call_summary',   // common alternative name
+    caller_intent: 'intent',       // common alternative name
+  };
+
+  for (const [retellKey, airtableField] of Object.entries(CUSTOM_FIELD_MAP)) {
+    if (customData[retellKey] !== undefined && customData[retellKey] !== '') {
+      patch[airtableField] = customData[retellKey];
+    }
+  }
+
+  // caller_name from custom data (enriches if Phase 1 had it empty)
+  if (customData.caller_name && !patch.caller_name) {
+    patch.caller_name = customData.caller_name;
+  }
 
   if (Object.keys(patch).length === 0) {
     console.log('[webhook/call_analyzed] no enrichment data available — skipping update');
