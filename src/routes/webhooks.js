@@ -82,6 +82,10 @@ async function handleCallEnded(call_id, call) {
   const dvs = call.retell_llm_dynamic_variables || {};
   const reason = call.disconnection_reason || 'unknown';
 
+  // Log exactly what DVs Retell sent — tells us definitively what's available
+  console.log('[webhook/call_ended] retell_llm_dynamic_variables:', JSON.stringify(dvs));
+  console.log('[webhook/call_ended] DV keys present:', Object.keys(dvs));
+
   const escalated = reason === 'call_transfer' || dvs.escalated === 'true';
   const resolution = inferResolution(reason, escalated);
 
