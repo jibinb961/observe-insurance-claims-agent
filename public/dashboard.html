@@ -327,6 +327,29 @@
 
       <div class="panel">
         <div class="panel-header">
+          <span class="panel-title">Callback Requests</span>
+          <span style="font-size:11px;color:var(--muted)">written to Airtable via in-call tool</span>
+        </div>
+        <div class="panel-body no-pad">
+          <table>
+            <thead>
+              <tr>
+                <th>Ref</th>
+                <th>Caller</th>
+                <th>Preferred Time</th>
+                <th>Reason</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="callbacks-body">
+              <tr class="empty-row"><td colspan="5">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
           <span class="panel-title">Inbound Call Log</span>
           <span style="font-size:11px;color:var(--muted)">last 20 calls received by webhook</span>
         </div>
@@ -471,16 +494,35 @@
 
   // ── Data fetch ───────────────────────────────────────────────────────────
   async function refresh() {
-    let data;
+    let data, callbackData;
     try {
-      const r = await fetch('/api/dashboard-data');
-      data = await r.json();
+      [data, callbackData] = await Promise.all([
+        fetch('/api/dashboard-data').then(r => r.json()),
+        fetch('/api/callbacks').then(r => r.json()).catch(() => ({ callbacks: [] })),
+      ]);
     } catch (e) {
       showToast('Could not reach backend');
       return;
     }
 
     const { health, stats, interactions, inbound_log } = data;
+
+    // Callbacks table
+    const cbBody = document.getElementById('callbacks-body');
+    const callbacks = callbackData.callbacks || [];
+    if (callbacks.length === 0) {
+      cbBody.innerHTML = '<tr class="empty-row"><td colspan="5">No callback requests yet. Ask the agent "can someone call me back?" to create one.</td></tr>';
+    } else {
+      cbBody.innerHTML = callbacks.map(c => `
+        <tr>
+          <td class="call-id">${escHtml(c.callback_id)}</td>
+          <td>${escHtml(c.caller_name)}</td>
+          <td>${escHtml(c.preferred_time || '—')}</td>
+          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(c.reason || '—')}</td>
+          <td><span class="badge ${c.status === 'Pending' ? 'badge-amber' : 'badge-green'}">${escHtml(c.status)}</span></td>
+        </tr>
+      `).join('');
+    }
 
     // Status bar
     const backendDot = document.getElementById('dot-backend');

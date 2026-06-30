@@ -226,6 +226,39 @@ async function writeInteractionRecord(data, call_id) {
 }
 
 /**
+ * Write a callback request record to the Callbacks table.
+ *
+ * This is the in-call write demonstration — the agent calls this when a
+ * caller asks to be called back. Unlike post-call writes, this is a
+ * deliberate mid-call action with immediate confirmation to the caller.
+ *
+ * Airtable table required: "Callbacks"
+ * Fields: callback_id, customer_id, caller_name, phone, preferred_time, reason, status, created_at
+ */
+async function createCallbackRequest({ customer_id, caller_name, phone, preferred_time, reason }) {
+  // Generate a human-readable ID: CB-<timestamp-last-6>
+  const callback_id = `CB-${Date.now().toString().slice(-6)}`;
+
+  console.log('[airtable] createCallbackRequest callback_id:', callback_id, 'customer_id:', customer_id);
+
+  const fields = {
+    callback_id,
+    customer_id: customer_id || '',
+    caller_name: caller_name || '',
+    phone: phone || '',
+    preferred_time: preferred_time || 'Not specified',
+    reason: reason || '',
+    status: 'Pending',
+    created_at: new Date().toISOString(),
+  };
+
+  await withTimeout(base('Callbacks').create([{ fields }]));
+
+  console.log('[airtable] callback request created:', callback_id);
+  return { created: true, callback_id };
+}
+
+/**
  * Enrich an existing interaction record with post-call analysis data.
  * Called by the call_analyzed webhook handler — fires after call_ended.
  *
@@ -265,6 +298,38 @@ async function updateInteractionRecord(call_id, fields) {
 }
 
 /**
+ * Fetch recent callback requests for the dashboard.
+ */
+async function getRecentCallbacks(limit = 20) {
+  try {
+    const records = await withTimeout(
+      base('Callbacks')
+        .select({
+          sort: [{ field: 'created_at', direction: 'desc' }],
+          maxRecords: limit,
+          fields: ['callback_id', 'customer_id', 'caller_name', 'phone', 'preferred_time', 'reason', 'status', 'created_at'],
+        })
+        .firstPage()
+    );
+
+    return (records || []).map((r) => ({
+      callback_id:    r.fields.callback_id || '',
+      customer_id:    r.fields.customer_id || '',
+      caller_name:    r.fields.caller_name || 'Unknown',
+      phone:          r.fields.phone || '',
+      preferred_time: r.fields.preferred_time || '',
+      reason:         r.fields.reason || '',
+      status:         r.fields.status || 'Pending',
+      created_at:     r.fields.created_at || '',
+    }));
+  } catch (err) {
+    // Callbacks table may not exist yet — return empty rather than crashing dashboard
+    console.warn('[airtable] getRecentCallbacks failed (table may not exist yet):', err.message);
+    return [];
+  }
+}
+
+/**
  * Fetch recent interaction records for the dashboard.
  * Returns the most recent `limit` records sorted newest-first.
  */
@@ -295,7 +360,9 @@ module.exports = {
   lookupCustomer,
   verifyIdentity,
   getClaimStatus,
+  createCallbackRequest,
   writeInteractionRecord,
   updateInteractionRecord,
   getRecentInteractions,
+  getRecentCallbacks,
 };

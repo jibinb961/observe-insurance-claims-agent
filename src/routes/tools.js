@@ -206,4 +206,59 @@ router.post('/notify-escalation', async (req, res) => {
     );
 });
 
+/**
+ * POST /tools/request-callback
+ *
+ * In-call write demonstration: caller asks to be called back, agent captures
+ * the details and writes a structured record to the Callbacks table.
+ *
+ * This replaces write-interaction-record as the in-call write tool.
+ * Post-call writes are now owned entirely by the webhook pipeline (call_ended
+ * + call_analyzed events) which is more robust — survives hangups and drops.
+ *
+ * Arguments from Retell (all strings — Retell passes DVs as strings):
+ *   customer_id:    authenticated caller ID (from DV)
+ *   caller_name:    caller's first name (from DV)
+ *   phone:          {{user_number}} system variable
+ *   preferred_time: free-form text from the caller ("tomorrow morning", "after 3pm")
+ *   reason:         brief reason for the callback ("question about CLM-001 documents")
+ */
+router.post('/request-callback', async (req, res) => {
+  const { customer_id, caller_name, phone, preferred_time, reason } = req.body;
+
+  console.log('[request-callback] customer_id:', customer_id, 'preferred_time:', preferred_time);
+
+  if (!customer_id) {
+    return res.status(400).json({
+      success: false,
+      error: 'customer_id is required',
+      fallback: 'I need to verify your account before I can schedule a callback.',
+    });
+  }
+
+  try {
+    const result = await airtable.createCallbackRequest({
+      customer_id,
+      caller_name,
+      phone,
+      preferred_time,
+      reason,
+    });
+
+    return res.json({
+      success: true,
+      callback_id: result.callback_id,
+      // Agent reads this message directly back to the caller
+      message: `Your callback request has been logged. A representative will reach out ${preferred_time || 'as soon as possible'}. Your reference number is ${result.callback_id}.`,
+    });
+  } catch (err) {
+    console.error('[request-callback] error:', err.message);
+    return res.json({
+      success: false,
+      error: 'callback_failed',
+      fallback: 'I was unable to log the callback request right now. Let me transfer you to a representative who can do that for you.',
+    });
+  }
+});
+
 module.exports = router;

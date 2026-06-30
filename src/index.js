@@ -188,6 +188,17 @@ app.get('/api/dashboard-data', async (req, res) => {
   res.json({ health, stats, interactions, inbound_log: inboundLog });
 });
 
+// ─── Callbacks API ────────────────────────────────────────────────────────────
+app.get('/api/callbacks', async (req, res) => {
+  try {
+    const callbacks = await airtable.getRecentCallbacks(20);
+    res.json({ callbacks });
+  } catch (err) {
+    console.error('[api/callbacks] error:', err.message);
+    res.json({ callbacks: [], error: err.message });
+  }
+});
+
 // ─── Slack test endpoint ───────────────────────────────────────────────────────
 // GET /debug/test-slack — fires a test Slack alert to confirm the webhook is wired.
 app.get('/debug/test-slack', async (req, res) => {
