@@ -190,13 +190,14 @@ async function handleCallAnalyzed(call_id) {
   // Map custom post-call analysis variables → Airtable fields.
   // Keys must match the variable names in Retell → Agent → Post-Call Analysis.
   const CUSTOM_FIELD_MAP = {
-    intent:        'intent',
-    resolution:    'resolution',
-    sentiment:     'sentiment',
-    call_summary:  'call_summary',
-    summary:       'call_summary',
-    caller_name:   'caller_name',
-    caller_intent: 'intent',
+    intent:          'intent',
+    resolution:      'resolution',
+    sentiment:       'sentiment',
+    call_summary:    'call_summary',
+    summary:         'call_summary',
+    caller_name:     'caller_name',
+    caller_intent:   'intent',
+    claims_checked:  'claims_checked',  // Retell AI extraction — fallback if transcript parse misses
   };
 
   for (const [retellKey, airtableField] of Object.entries(CUSTOM_FIELD_MAP)) {
