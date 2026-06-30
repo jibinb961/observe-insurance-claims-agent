@@ -25,6 +25,22 @@ const express = require('express');
 const router = express.Router();
 const airtable = require('../services/airtable');
 
+// ─── Debug ring buffer ────────────────────────────────────────────────────────
+// Stores the last 20 webhook events so we can verify Retell is hitting us
+// without needing to open the Render log dashboard.
+// GET /webhooks/event-log to inspect.
+const eventLog = [];
+const MAX_EVENTS = 20;
+
+function logEvent(entry) {
+  eventLog.unshift({ ...entry, ts: new Date().toISOString() });
+  if (eventLog.length > MAX_EVENTS) eventLog.pop();
+}
+
+router.get('/event-log', (req, res) => {
+  res.json({ count: eventLog.length, events: eventLog });
+});
+
 router.post('/call-end', async (req, res) => {
   // Always acknowledge immediately — Retell retries on non-200 and we must not block
   res.status(200).json({ received: true });
@@ -33,11 +49,13 @@ router.post('/call-end', async (req, res) => {
 
   if (!call?.call_id) {
     console.error('[webhook] missing call_id — payload:', JSON.stringify(req.body).slice(0, 200));
+    logEvent({ event: event || 'unknown', call_id: null, error: 'missing_call_id', body_keys: Object.keys(req.body) });
     return;
   }
 
   const call_id = call.call_id;
   console.log(`[webhook/${event || 'unknown'}] call_id:`, call_id);
+  logEvent({ event: event || 'unknown', call_id, disconnection_reason: call.disconnection_reason || null });
 
   if (event === 'call_ended') {
     await handleCallEnded(call_id, call);
