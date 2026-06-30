@@ -167,12 +167,20 @@ async function handleCallAnalyzed(call_id, call) {
   }
 
   try {
-    const result = await airtable.updateInteractionRecord(call_id, patch);
+    let result = await airtable.updateInteractionRecord(call_id, patch);
 
     if (result.reason === 'not_found') {
-      // Edge case: call_analyzed arrived but call_ended never created the record
-      // (e.g. server restarted between the two events). Create the record now from full data.
-      console.warn('[webhook/call_analyzed] no existing record — creating fallback record');
+      // call_ended and call_analyzed often arrive within 30ms of each other.
+      // Phase 1 write is likely still in-flight — wait 3s and retry once.
+      console.log('[webhook/call_analyzed] record not found — retrying in 3s (Phase 1 write likely in flight)');
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      result = await airtable.updateInteractionRecord(call_id, patch);
+    }
+
+    if (result.reason === 'not_found') {
+      // Still not found after retry — Phase 1 must have failed entirely.
+      // Create the record from full analysis data as a last resort.
+      console.warn('[webhook/call_analyzed] record still missing after retry — creating fallback record');
       const reason = call.disconnection_reason || 'unknown';
       const escalated = reason === 'call_transfer' || dvs.escalated === 'true';
       await airtable.writeInteractionRecord(

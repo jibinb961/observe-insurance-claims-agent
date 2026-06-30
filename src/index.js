@@ -116,9 +116,17 @@ app.post('/webhook/inbound', async (req, res) => {
   const from_number = req.body?.call_inbound?.from_number || req.body?.from_number;
   console.log('[inbound] call from:', from_number ? `[REDACTED, length=${from_number.length}]` : 'unknown');
 
+  // If RETELL_AGENT_ID is set, include override_agent_id so Retell uses the
+  // right agent even when "Inbound Call Agent" is not configured on the number.
+  // This also makes the webhook the single source of routing + DV injection.
+  const agentOverride = process.env.RETELL_AGENT_ID
+    ? { override_agent_id: process.env.RETELL_AGENT_ID }
+    : {};
+
   // DVs must always be strings — Retell rejects booleans and numbers
   const notFound = {
     call_inbound: {
+      ...agentOverride,
       dynamic_variables: {
         customer_found: 'false',
         customer_id: '',
@@ -143,7 +151,7 @@ app.post('/webhook/inbound', async (req, res) => {
         first_name: result.first_name,
       };
       logInbound({ from: `+***${from_number.slice(-4)}`, result: 'found', dvs });
-      return res.json({ call_inbound: { dynamic_variables: dvs } });
+      return res.json({ call_inbound: { ...agentOverride, dynamic_variables: dvs } });
     }
 
     console.log('[inbound] caller not in system');
