@@ -316,10 +316,11 @@
                 <th>Resolution</th>
                 <th>Sentiment</th>
                 <th>Escalated</th>
+                <th></th>
               </tr>
             </thead>
             <tbody id="interactions-body">
-              <tr class="empty-row"><td colspan="7">Loading...</td></tr>
+              <tr class="empty-row"><td colspan="8">Loading...</td></tr>
             </tbody>
           </table>
         </div>
@@ -574,6 +575,11 @@
             ? '<span class="badge badge-red">Yes</span>'
             : '<span class="badge badge-gray">No</span>'}
           </td>
+          <td>
+            ${i.call_id && !i.call_id.startsWith('call_test') && !i.call_id.startsWith('race_') && !i.call_id.startsWith('manual_') && !i.call_id.startsWith('live-test')
+              ? `<button class="btn btn-outline btn-sm" onclick="syncCall('${escHtml(i.call_id)}')" title="Re-fetch analysis from Retell API">Sync</button>`
+              : ''}
+          </td>
         </tr>
       `).join('');
     }
@@ -672,6 +678,23 @@
     } catch {
       el.style.color = 'var(--red)';
       el.textContent = 'Request failed.';
+    }
+  }
+
+  // ── Sync call from Retell API ────────────────────────────────────────────
+  async function syncCall(call_id) {
+    showToast(`Fetching analysis for …${call_id.slice(-8)}`, 4000);
+    try {
+      const r = await fetch(`/api/sync-call/${call_id}`);
+      const d = await r.json();
+      if (d.synced) {
+        showToast(`Synced — updated: ${d.fields_updated.join(', ')}`);
+        setTimeout(refresh, 800);
+      } else {
+        showToast('No analysis data available for this call yet.');
+      }
+    } catch {
+      showToast('Sync request failed.');
     }
   }
 

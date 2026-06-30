@@ -207,6 +207,68 @@ app.get('/api/callbacks', async (req, res) => {
   }
 });
 
+// ─── Retell Get Call API — retroactive analysis sync ─────────────────────────
+// If call_analyzed was missed (server restart during event), the Airtable record
+// has Neutral sentiment + placeholder summary. This endpoint fetches the full
+// analysis from Retell's API and patches Airtable — recovery without reprocessing.
+// GET /api/sync-call/:call_id
+app.get('/api/sync-call/:call_id', async (req, res) => {
+  const { call_id } = req.params;
+  const apiKey = process.env.RETELL_API_KEY;
+
+  if (!apiKey) {
+    return res.status(400).json({ error: 'RETELL_API_KEY not configured' });
+  }
+
+  try {
+    // Fetch full call object from Retell's Get Call API
+    const retellRes = await fetch(`https://api.retellai.com/v2/get-call/${call_id}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+
+    if (!retellRes.ok) {
+      return res.status(retellRes.status).json({
+        error: `Retell API returned ${retellRes.status}`,
+        call_id,
+      });
+    }
+
+    const call = await retellRes.json();
+    const analysis = call.call_analysis || {};
+    const customData = analysis.custom_analysis_data || {};
+
+    console.log('[sync-call] call_id:', call_id, '| analysis keys:', Object.keys(analysis));
+
+    // Build patch using the same logic as handleCallAnalyzed
+    const patch = {};
+    if (analysis.call_summary)   patch.call_summary = analysis.call_summary;
+    if (analysis.user_sentiment) patch.sentiment    = analysis.user_sentiment === 'Positive' ? 'Positive'
+                                                    : analysis.user_sentiment === 'Negative' ? 'Negative'
+                                                    : 'Neutral';
+    if (typeof analysis.call_successful === 'boolean') {
+      patch.resolution = analysis.call_successful ? 'resolved' : 'incomplete';
+    }
+
+    const FIELD_MAP = {
+      intent: 'intent', resolution: 'resolution', sentiment: 'sentiment',
+      call_summary: 'call_summary', summary: 'call_summary', caller_name: 'caller_name',
+    };
+    for (const [k, v] of Object.entries(FIELD_MAP)) {
+      if (customData[k]) patch[v] = customData[k];
+    }
+
+    if (Object.keys(patch).length === 0) {
+      return res.json({ synced: false, reason: 'no_analysis_data', call_id });
+    }
+
+    const result = await airtable.updateInteractionRecord(call_id, patch);
+    res.json({ synced: true, call_id, fields_updated: Object.keys(patch), airtable: result });
+  } catch (err) {
+    console.error('[sync-call] error:', err.message);
+    res.status(500).json({ error: err.message, call_id });
+  }
+});
+
 // ─── Slack test endpoint ───────────────────────────────────────────────────────
 // GET /debug/test-slack — fires a test Slack alert to confirm the webhook is wired.
 app.get('/debug/test-slack', async (req, res) => {
