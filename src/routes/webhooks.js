@@ -82,18 +82,38 @@ async function handleCallEnded(call_id, call) {
   const dvs = call.retell_llm_dynamic_variables || {};
   const reason = call.disconnection_reason || 'unknown';
 
-  // Log exactly what DVs Retell sent — tells us definitively what's available
+  // Log exactly what DVs Retell sent
   console.log('[webhook/call_ended] retell_llm_dynamic_variables:', JSON.stringify(dvs));
-  console.log('[webhook/call_ended] DV keys present:', Object.keys(dvs));
+  console.log('[webhook/call_ended] from_number present:', !!call.from_number);
+
+  // Retell only stores DVs set via tool response_variables — NOT inbound webhook DVs.
+  // If customer_id is missing (inbound webhook pre-identified caller, agent skipped
+  // lookup_customer), fall back to a direct Airtable lookup using from_number.
+  let customer_id = dvs.customer_id || '';
+  let caller_name = dvs.first_name || '';
+
+  if (!customer_id && call.from_number) {
+    console.log('[webhook/call_ended] DVs empty — falling back to from_number lookup');
+    try {
+      const lookup = await airtable.lookupCustomer(call.from_number);
+      if (lookup.found) {
+        customer_id = lookup.customer_id;
+        caller_name = lookup.first_name;
+        console.log('[webhook/call_ended] fallback lookup found:', customer_id);
+      }
+    } catch (err) {
+      console.warn('[webhook/call_ended] fallback lookup failed:', err.message);
+    }
+  }
 
   const escalated = reason === 'call_transfer' || dvs.escalated === 'true';
   const resolution = inferResolution(reason, escalated);
 
   const data = {
-    caller_name: dvs.first_name || '',
-    customer_id: dvs.customer_id || '',
+    caller_name,
+    customer_id,
     // Summary is placeholder — Phase 2 will overwrite with Retell's real analysis
-    call_summary: buildPlaceholderSummary(reason, dvs),
+    call_summary: buildPlaceholderSummary(reason, { first_name: caller_name, customer_id }),
     sentiment: 'Neutral',
     intent: dvs.intent || 'other',
     resolution,
