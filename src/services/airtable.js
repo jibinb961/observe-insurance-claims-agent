@@ -179,50 +179,69 @@ async function getClaimStatus(customer_id, claim_id) {
  * Idempotent: keyed on call_id. If a record already exists for this call_id
  * (e.g., the in-call tool already wrote it), returns early without double-writing.
  *
+ * In-memory pendingWrites guard prevents the race condition where call_ended
+ * and call_analyzed fire within milliseconds of each other, both pass the
+ * DB idempotency check before either write completes, and both insert.
+ *
  * The write succeeding or failing must never affect the caller's experience —
  * the tool route handles errors gracefully and the call ends cleanly regardless.
  */
+
+// Guards against concurrent writes for the same call_id (race condition fix)
+const pendingWrites = new Set();
+
 async function writeInteractionRecord(data, call_id) {
   console.log('[airtable] writeInteractionRecord call_id:', call_id);
 
-  // Idempotency check
-  const existing = await withTimeout(
-    base('Interactions')
-      .select({
-        filterByFormula: `{call_id} = "${call_id}"`,
-        maxRecords: 1,
-        fields: ['call_id'],
-      })
-      .firstPage()
-  );
-
-  if (existing && existing.length > 0) {
-    console.log('[airtable] idempotency: record already exists for call_id:', call_id);
-    return { written: false, reason: 'already_logged' };
+  // In-process guard: if a write for this call_id is already in flight, skip
+  if (pendingWrites.has(call_id)) {
+    console.log('[airtable] write already in progress for call_id:', call_id, '— skipping');
+    return { written: false, reason: 'write_in_progress' };
   }
+  pendingWrites.add(call_id);
 
-  // escalated is a Single Select field in Airtable ("Yes" / omitted).
-  // Retell DV interpolation can produce boolean true/false OR the strings
-  // "true"/"false" — normalize both before writing.
-  const escalatedBool =
-    data.escalated === true || data.escalated === 'true';
+  try {
+    // DB-level idempotency check (catches retries across process restarts)
+    const existing = await withTimeout(
+      base('Interactions')
+        .select({
+          filterByFormula: `{call_id} = "${call_id}"`,
+          maxRecords: 1,
+          fields: ['call_id'],
+        })
+        .firstPage()
+    );
 
-  const fields = {
-    call_id,
-    timestamp: new Date().toISOString(),
-    caller_name: data.caller_name || '',
-    customer_id: data.customer_id || '',
-    call_summary: data.call_summary || '',
-    sentiment: data.sentiment || 'Neutral',
-    intent: data.intent || 'other',
-    resolution: data.resolution || 'incomplete',
-    ...(escalatedBool ? { escalated: 'Yes' } : {}),
-  };
+    if (existing && existing.length > 0) {
+      console.log('[airtable] idempotency: record already exists for call_id:', call_id);
+      return { written: false, reason: 'already_logged' };
+    }
 
-  await withTimeout(base('Interactions').create([{ fields }]));
+    // escalated is a Single Select field in Airtable ("Yes" / omitted).
+    // Retell DV interpolation can produce boolean true/false OR the strings
+    // "true"/"false" — normalize both before writing.
+    const escalatedBool = data.escalated === true || data.escalated === 'true';
 
-  console.log('[airtable] interaction record written for call_id:', call_id);
-  return { written: true };
+    const fields = {
+      call_id,
+      timestamp: new Date().toISOString(),
+      caller_name: data.caller_name || '',
+      customer_id: data.customer_id || '',
+      call_summary: data.call_summary || '',
+      sentiment: data.sentiment || 'Neutral',
+      intent: data.intent || 'other',
+      resolution: data.resolution || 'incomplete',
+      ...(escalatedBool ? { escalated: 'Yes' } : {}),
+    };
+
+    await withTimeout(base('Interactions').create([{ fields }]));
+
+    console.log('[airtable] interaction record written for call_id:', call_id);
+    return { written: true };
+  } finally {
+    // Always release the lock — even if Airtable throws
+    pendingWrites.delete(call_id);
+  }
 }
 
 /**
