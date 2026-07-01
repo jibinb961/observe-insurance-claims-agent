@@ -24,6 +24,7 @@ const webhooksRouter = require('./routes/webhooks');
 const failSwitch = require('./demo/failSwitch');
 const airtable = require('./services/airtable');
 const slack = require('./services/slack');
+const { parseCallActivity, resolveCallerPhone } = require('./services/callActivity');
 
 const app = express();
 app.use(express.json());
@@ -236,6 +237,7 @@ app.get('/api/sync-call/:call_id', async (req, res) => {
     const call = await retellRes.json();
     const analysis = call.call_analysis || {};
     const customData = analysis.custom_analysis_data || {};
+    const activity = parseCallActivity(call.transcript_with_tool_calls);
 
     console.log('[sync-call] call_id:', call_id, '| analysis keys:', Object.keys(analysis));
 
@@ -252,10 +254,16 @@ app.get('/api/sync-call/:call_id', async (req, res) => {
     const FIELD_MAP = {
       intent: 'intent', resolution: 'resolution', sentiment: 'sentiment',
       call_summary: 'call_summary', summary: 'call_summary', caller_name: 'caller_name',
+      claims_checked: 'claims_checked',
     };
     for (const [k, v] of Object.entries(FIELD_MAP)) {
       if (customData[k]) patch[v] = customData[k];
     }
+
+    const resolvedPhone = resolveCallerPhone({ call_id, apiCall: call, activity });
+    if (resolvedPhone) patch.caller_phone = resolvedPhone;
+    if (activity.customers.length > 0) patch.customer_id = activity.customers.join(', ');
+    if (activity.claims.length > 0) patch.claims_checked = activity.claims.join(', ');
 
     if (Object.keys(patch).length === 0) {
       return res.json({ synced: false, reason: 'no_analysis_data', call_id });

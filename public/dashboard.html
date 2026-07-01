@@ -558,6 +558,7 @@
   <div class="drawer-header">
     <div>
       <div class="drawer-caller-name" id="d-caller-name">—</div>
+      <div id="d-caller-sub" style="font-size:12px;color:#94a3b8;margin-top:2px;display:none"></div>
       <div class="drawer-call-id" id="d-call-id">—</div>
       <div class="drawer-timestamp" id="d-timestamp">—</div>
     </div>
@@ -659,6 +660,42 @@
     return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
+  /** Treat legacy "Unknown" stored values as empty for display. */
+  function effectiveName(name) {
+    const n = String(name || '').trim();
+    return n && n.toLowerCase() !== 'unknown' ? n : '';
+  }
+
+  function formatPhone(phone) {
+    const digits = String(phone || '').replace(/\D/g, '');
+    if (digits.length === 11 && digits.startsWith('1')) {
+      return `+1 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
+    }
+    if (digits.length === 10) {
+      return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+    }
+    return phone || '';
+  }
+
+  /** Primary label for a row/drawer — prefer name, fall back to formatted phone. */
+  function callerDisplay(i) {
+    const name = effectiveName(i.caller_name);
+    const phone = i.caller_phone || '';
+    if (name) {
+      return { primary: name, secondary: phone ? formatPhone(phone) : '' };
+    }
+    if (phone) {
+      return { primary: formatPhone(phone), secondary: 'Unknown caller' };
+    }
+    return { primary: 'Unknown caller', secondary: '' };
+  }
+
+  function customerDisplay(i) {
+    if (i.customer_id) return { text: i.customer_id, empty: false };
+    if (i.caller_phone) return { text: 'No account matched', empty: true };
+    return { text: 'No authentication', empty: true };
+  }
+
   function fmtUptime(s) {
     if (!s) return '—';
     const h = Math.floor(s / 3600);
@@ -676,10 +713,21 @@
 
     activeCallId = call_id;
 
+    const display = callerDisplay(i);
+    const cust = customerDisplay(i);
+
     // Header
-    document.getElementById('d-caller-name').textContent = i.caller_name || 'Unknown Caller';
+    document.getElementById('d-caller-name').textContent = display.primary;
     document.getElementById('d-call-id').textContent     = call_id;
     document.getElementById('d-timestamp').textContent   = fmtLong(i.timestamp);
+    const subEl = document.getElementById('d-caller-sub');
+    if (display.secondary) {
+      subEl.textContent = display.secondary;
+      subEl.style.display = 'block';
+    } else {
+      subEl.textContent = '';
+      subEl.style.display = 'none';
+    }
 
     // Badges
     const badgeRow = document.getElementById('d-badges');
@@ -698,9 +746,8 @@
     document.getElementById('d-phone').textContent = phone || '—';
     document.getElementById('d-phone').className   = phone ? 'drawer-val mono' : 'drawer-val empty';
 
-    const customers = i.customer_id;
-    document.getElementById('d-customers').textContent = customers || 'Anonymous (FAQ/no auth)';
-    document.getElementById('d-customers').className   = customers ? 'drawer-val' : 'drawer-val empty';
+    document.getElementById('d-customers').textContent = cust.text;
+    document.getElementById('d-customers').className   = cust.empty ? 'drawer-val empty' : 'drawer-val';
 
     const claimsList = document.getElementById('d-claims');
     if (i.claims_checked) {
@@ -835,12 +882,13 @@
       tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No interactions recorded yet. Make a call to see data here.</td></tr>';
     } else {
       tbody.innerHTML = interactions.map((i) => {
+        const display = callerDisplay(i);
+        const cust = customerDisplay(i);
         const hasSummary = i.call_summary && !i.call_summary.includes('[Awaiting');
         const hasPhone   = !!i.caller_phone;
         const hasClaims  = !!i.claims_checked;
         const hints = [
           hasSummary ? '📋' : '',
-          hasPhone   ? '📞' : '',
           hasClaims  ? '🗂' : '',
         ].filter(Boolean).join(' ');
 
@@ -848,10 +896,13 @@
           <tr class="interaction-row" data-call-id="${escHtml(i.call_id)}" onclick="openDrawer('${escHtml(i.call_id)}')">
             <td class="time-cell">${fmt(i.timestamp)}</td>
             <td>
-              <div style="font-weight:500">${escHtml(i.caller_name)}</div>
+              <div style="font-weight:500">${escHtml(display.primary)}</div>
+              ${display.secondary ? `<div class="call-id" style="margin-top:2px">${escHtml(display.secondary)}</div>` : ''}
               ${hints ? `<div style="font-size:10px;margin-top:2px">${hints}</div>` : ''}
             </td>
-            <td class="call-id">${escHtml(i.customer_id) || '<span style="color:var(--muted);font-style:italic">anon</span>'}</td>
+            <td class="call-id">${cust.empty
+              ? `<span style="color:var(--muted);font-style:italic">${escHtml(cust.text)}</span>`
+              : escHtml(cust.text)}</td>
             <td>${intentBadge(i.intent)}</td>
             <td>${resolutionBadge(i.resolution)}</td>
             <td>${sentimentBadge(i.sentiment)}</td>

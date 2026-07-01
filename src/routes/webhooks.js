@@ -24,6 +24,11 @@
 const express = require('express');
 const router = express.Router();
 const airtable = require('../services/airtable');
+const {
+  cacheCallPhone,
+  parseCallActivity,
+  resolveCallerPhone,
+} = require('../services/callActivity');
 
 // ─── Debug ring buffer ────────────────────────────────────────────────────────
 // Stores the last 20 webhook events so we can verify Retell is hitting us
@@ -67,12 +72,18 @@ router.post('/call-end', async (req, res) => {
       : null,
   });
 
-  if (event === 'call_ended') {
+  if (event === 'call_started') {
+    if (call.from_number) {
+      cacheCallPhone(call_id, call.from_number);
+      console.log('[webhook/call_started] cached from_number for call_id:', call_id);
+    } else {
+      console.log('[webhook/call_started] no from_number in payload');
+    }
+  } else if (event === 'call_ended') {
     await handleCallEnded(call_id, call);
   } else if (event === 'call_analyzed') {
     await handleCallAnalyzed(call_id);  // fetches from Retell API internally
   } else {
-    // call_started and other events — nothing to write
     console.log(`[webhook] ignoring event: ${event}`);
   }
 });
@@ -92,10 +103,12 @@ async function handleCallEnded(call_id, call) {
   let customer_id = dvs.customer_id || '';
   let caller_name = dvs.first_name || '';
 
-  if (!customer_id && call.from_number) {
-    console.log('[webhook/call_ended] DVs empty — falling back to from_number lookup');
+  const caller_phone = resolveCallerPhone({ call_id, webhookCall: call });
+
+  if (!customer_id && caller_phone) {
+    console.log('[webhook/call_ended] DVs empty — falling back to phone lookup');
     try {
-      const lookup = await airtable.lookupCustomer(call.from_number);
+      const lookup = await airtable.lookupCustomer(caller_phone);
       if (lookup.found) {
         customer_id = lookup.customer_id;
         caller_name = lookup.first_name;
@@ -111,7 +124,7 @@ async function handleCallEnded(call_id, call) {
 
   const data = {
     caller_name,
-    caller_phone: call.from_number || '',   // always store the physical caller number
+    caller_phone,
     customer_id,
     claims_checked: '',                      // Phase 2 will fill this from transcript
     // Summary is placeholder — Phase 2 will overwrite with Retell's real analysis
@@ -175,7 +188,8 @@ async function handleCallAnalyzed(call_id) {
     '| summary length:', analysis.call_summary?.length || 0,
     '| custom keys:', Object.keys(customData),
     '| customers served:', activity.customers,
-    '| claims checked:', activity.claims);
+    '| claims checked:', activity.claims,
+    '| spoken phones:', activity.spokenPhones);
 
   // Build the enrichment patch from authoritative API data
   const patch = {};
@@ -207,9 +221,13 @@ async function handleCallAnalyzed(call_id) {
   }
 
   // Enrich with caller phone and full activity derived from the transcript.
-  // These overwrite Phase 1's partial data with the complete picture.
-  if (callData.from_number) {
-    patch.caller_phone = callData.from_number;
+  const resolvedPhone = resolveCallerPhone({
+    call_id,
+    apiCall: callData,
+    activity,
+  });
+  if (resolvedPhone) {
+    patch.caller_phone = resolvedPhone;
   }
   if (activity.customers.length > 0) {
     // Comma-separated when multiple customers were served in one call
@@ -244,7 +262,9 @@ async function handleCallAnalyzed(call_id) {
       await airtable.writeInteractionRecord(
         {
           caller_name: customData.caller_name || '',
-          customer_id: customData.customer_id || '',
+          caller_phone: resolvedPhone || '',
+          customer_id: customData.customer_id || activity.customers.join(', '),
+          claims_checked: activity.claims.join(', '),
           call_summary: patch.call_summary || buildPlaceholderSummary(reason, {}),
           sentiment: patch.sentiment || 'Neutral',
           intent: patch.intent || 'other',
@@ -263,59 +283,6 @@ async function handleCallAnalyzed(call_id) {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/**
- * Parses Retell's transcript_with_tool_calls array to extract every customer ID
- * authenticated and every claim ID accessed during the call.
- *
- * transcript_with_tool_calls entries with role="tool_call_result" contain the
- * raw JSON string that our backend returned to the agent. We parse each one and
- * look for known shapes from lookup_customer and get_claim_status responses.
- *
- * This is the authoritative source for multi-customer, multi-claim calls —
- * it works without any agent changes because the data is already in the transcript.
- */
-function parseCallActivity(transcriptWithToolCalls) {
-  const customers = new Set();
-  const claims    = new Set();
-
-  if (!Array.isArray(transcriptWithToolCalls)) return { customers: [], claims: [] };
-
-  for (const entry of transcriptWithToolCalls) {
-    if (entry.role !== 'tool_call_result') continue;
-
-    let result;
-    try {
-      result = typeof entry.content === 'string'
-        ? JSON.parse(entry.content)
-        : entry.content;
-    } catch {
-      continue; // non-JSON content — skip
-    }
-
-    if (!result || !result.found) continue;
-
-    // lookup_customer result: { found, customer_id, first_name, last_name }
-    if (result.customer_id) {
-      customers.add(result.customer_id);
-    }
-
-    // get_claim_status single result: { found, single, claim_id, ... }
-    if (result.claim_id) {
-      claims.add(result.claim_id);
-    }
-
-    // get_claim_status multi result: { found, multiple, claims: [{claim_id, ...}] }
-    if (Array.isArray(result.claims)) {
-      result.claims.forEach(c => { if (c.claim_id) claims.add(c.claim_id); });
-    }
-  }
-
-  return {
-    customers: [...customers],
-    claims:    [...claims],
-  };
-}
 
 /**
  * Maps Retell's disconnection_reason to our resolution values.

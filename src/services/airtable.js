@@ -374,7 +374,7 @@ async function getRecentInteractions(limit = 20) {
   return (records || []).map((r) => ({
     call_id:        r.fields.call_id        || '',
     timestamp:      r.fields.timestamp      || '',
-    caller_name:    r.fields.caller_name    || 'Unknown',
+    caller_name:    r.fields.caller_name    || '',
     caller_phone:   r.fields.caller_phone   || '',
     customer_id:    r.fields.customer_id    || '',
     claims_checked: r.fields.claims_checked || '',
