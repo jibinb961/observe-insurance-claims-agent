@@ -108,14 +108,17 @@ router.post('/verify-identity', async (req, res) => {
 /**
  * POST /tools/get-claim-status
  *
- * customer_id: REQUIRED — the authenticated caller's ID (set in triage, carried via handoff)
- * claim_id:    OPTIONAL — if the caller has multiple claims, the agent passes this after disambiguation
- *
+ * Purpose: Retrieve claim status for an authenticated customer.
+ * 
+ * Request:  { customer_id: string (required), claim_id?: string (optional) }
+ * Response: Single claim with full details OR multiple claims for disambiguation
+ * 
  * Security: customer_id is always required. A caller-provided claim_id without a matching
  * customer_id returns found:false — cross-customer lookups are structurally impossible.
+ * 
+ * Fallback: Agent says "I am having trouble retrieving your claim..." → escalates
  */
 router.post('/get-claim-status', async (req, res) => {
-  console.log('RAW BODY:', JSON.stringify(req.body));
   const { customer_id, claim_id } = req.body;
 
   if (!customer_id) {

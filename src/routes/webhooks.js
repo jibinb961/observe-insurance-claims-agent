@@ -22,6 +22,7 @@
  */
 
 const express = require('express');
+const crypto = require('crypto');
 const router = express.Router();
 const airtable = require('../services/airtable');
 const {
@@ -29,6 +30,56 @@ const {
   parseCallActivity,
   resolveCallerPhone,
 } = require('../services/callActivity');
+
+// ─── Webhook Signature Verification ──────────────────────────────────────────
+/**
+ * Verify Retell webhook signature to prevent spoofed requests.
+ * 
+ * Retell signs webhooks with HMAC-SHA256(payload, api_key).
+ * We verify using the X-Retell-Signature header.
+ * 
+ * SECURITY: Without this, anyone could POST fake call_ended events to pollute
+ * our analytics or DOS our system. Always verify signatures in production.
+ * 
+ * Returns true if signature matches, false otherwise.
+ */
+function verifyRetellSignature(req) {
+  const signature = req.headers['x-retell-signature'];
+  const apiKey = process.env.RETELL_API_KEY;
+  
+  if (!signature) {
+    console.warn('[webhook] no signature header present');
+    // Allow unsigned requests in development if RETELL_API_KEY not set
+    return !apiKey;
+  }
+  
+  if (!apiKey) {
+    console.warn('[webhook] RETELL_API_KEY not set — cannot verify signature');
+    return true;  // Allow in development
+  }
+
+  try {
+    const payload = JSON.stringify(req.body);
+    const expectedSignature = crypto
+      .createHmac('sha256', apiKey)
+      .update(payload)
+      .digest('hex');
+
+    const isValid = crypto.timingSafeEqual(
+      Buffer.from(signature),
+      Buffer.from(expectedSignature)
+    );
+
+    if (!isValid) {
+      console.error('[webhook] INVALID SIGNATURE — possible spoofed request');
+    }
+
+    return isValid;
+  } catch (err) {
+    console.error('[webhook] signature verification error:', err.message);
+    return false;
+  }
+}
 
 // ─── Debug ring buffer ────────────────────────────────────────────────────────
 // Stores the last 20 webhook events so we can verify Retell is hitting us
@@ -47,6 +98,12 @@ router.get('/event-log', (req, res) => {
 });
 
 router.post('/call-end', async (req, res) => {
+  // Verify signature before processing to prevent spoofed webhook requests
+  if (!verifyRetellSignature(req)) {
+    console.error('[webhook] rejecting request with invalid or missing signature');
+    return res.status(401).json({ error: 'Invalid signature' });
+  }
+
   // Always acknowledge immediately — Retell retries on non-200 and we must not block
   res.status(200).json({ received: true });
 

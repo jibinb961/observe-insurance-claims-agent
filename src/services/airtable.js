@@ -12,6 +12,7 @@
 
 require('dotenv').config();
 const Airtable = require('airtable');
+const { throttledRequest } = require('./rateLimiter');
 
 const base = new Airtable({ apiKey: process.env.AIRTABLE_TOKEN })
   .base(process.env.AIRTABLE_BASE_ID);
@@ -24,6 +25,32 @@ function withTimeout(promise, ms = TIMEOUT_MS) {
     setTimeout(() => reject(new Error(`Airtable timeout after ${ms}ms`)), ms)
   );
   return Promise.race([promise, timeout]);
+}
+
+/**
+ * Retry wrapper for Airtable calls with exponential backoff.
+ * Handles 429 rate limits and transient network errors.
+ * Max 3 retries with exponential backoff: 100ms, 200ms, 400ms + jitter.
+ */
+async function withRetry(promiseFn, maxRetries = 3) {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await promiseFn();
+    } catch (err) {
+      const is429 = err.statusCode === 429 || err.message?.includes('rate');
+      const isTimeout = err.message?.includes('timeout');
+      const isTransient = is429 || isTimeout || (err.statusCode >= 500 && err.statusCode < 600);
+      
+      if (!isTransient || attempt === maxRetries - 1) {
+        throw err;  // Not retryable or final attempt
+      }
+      
+      // Exponential backoff with jitter: 100ms, 200ms, 400ms + random(0-50ms)
+      const delayMs = (100 * Math.pow(2, attempt)) + Math.random() * 50;
+      console.warn(`[airtable] retrying after ${Math.round(delayMs)}ms (attempt ${attempt + 1}/${maxRetries}) — error: ${err.message}`);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
 }
 
 /**
@@ -42,37 +69,43 @@ function normalizePhone(phone) {
 /**
  * Look up a customer by phone number.
  * Returns customer_id, first_name, last_name — never dob_last4 (that stays server-side).
+ * 
+ * Wrapped with rate limiting and retry logic to handle Airtable 429 errors.
  */
 async function lookupCustomer(phone) {
   const normalized = normalizePhone(phone);
   console.log('[airtable] lookupCustomer phone:[REDACTED] normalized_length:', normalized.length);
 
-  let records;
-  try {
-    records = await withTimeout(
-      base('Customers')
-        .select({
-          filterByFormula: `{phone} = "${normalized}"`,
-          maxRecords: 1,
-          fields: ['customer_id', 'first_name', 'last_name'],
-        })
-        .firstPage()
-    );
-  } catch (airtableErr) {
-    // Log full Airtable error so Render logs show the root cause
-    console.error('[airtable] lookupCustomer Airtable error:', airtableErr?.message, airtableErr?.statusCode, JSON.stringify(airtableErr?.error));
-    throw airtableErr;
-  }
+  return await withRetry(async () => {
+    return await throttledRequest(async () => {
+      let records;
+      try {
+        records = await withTimeout(
+          base('Customers')
+            .select({
+              filterByFormula: `{phone} = "${normalized}"`,
+              maxRecords: 1,
+              fields: ['customer_id', 'first_name', 'last_name'],
+            })
+            .firstPage()
+        );
+      } catch (airtableErr) {
+        // Log full Airtable error so Render logs show the root cause
+        console.error('[airtable] lookupCustomer Airtable error:', airtableErr?.message, airtableErr?.statusCode, JSON.stringify(airtableErr?.error));
+        throw airtableErr;
+      }
 
-  if (!records || records.length === 0) return { found: false };
+      if (!records || records.length === 0) return { found: false };
 
-  const c = records[0].fields;
-  return {
-    found: true,
-    customer_id: c.customer_id,
-    first_name: c.first_name,
-    last_name: c.last_name,
-  };
+      const c = records[0].fields;
+      return {
+        found: true,
+        customer_id: c.customer_id,
+        first_name: c.first_name,
+        last_name: c.last_name,
+      };
+    });
+  });
 }
 
 /**

@@ -1,0 +1,760 @@
+{
+  "agent_id": "",
+  "channel": "voice",
+  "last_modification_timestamp": 1782783092913,
+  "agent_name": "Auth_Triage_Agent",
+  "response_engine": {
+    "type": "conversation-flow",
+    "version": 0,
+    "conversation_flow_id": "conversation_flow_2931c5fa2eb1"
+  },
+  "webhook_url": "https://observe-insurance-claims-agent.onrender.com/webhooks/call-end",
+  "language": "en-US",
+  "data_storage_setting": "everything",
+  "opt_in_signed_url": false,
+  "version": 0,
+  "assigned_tags": [],
+  "is_published": false,
+  "post_call_analysis_model": "gpt-4.1",
+  "pii_config": {
+    "mode": "post_call",
+    "categories": []
+  },
+  "handbook_config": {
+    "default_personality": true,
+    "ai_disclosure": true
+  },
+  "voice_id": "retell-Cimo",
+  "max_call_duration_ms": 3600000,
+  "interruption_sensitivity": 0.9,
+  "allow_user_dtmf": true,
+  "user_dtmf_options": {},
+  "conversationFlow": {
+    "conversation_flow_id": "conversation_flow_2931c5fa2eb1",
+    "version": 0,
+    "last_modification_timestamp": 1782783557147,
+    "global_prompt": "You are the virtual claims assistant for Observe Insurance. \nYou are warm, calm and efficient. This is a phone call ,\nkeep responses concise. Never ask for more than one piece \nof information at a time.\n\nSAFETY OVERRIDE — only trigger if caller explicitly \nmentions: emergency, accident, fire, injured, hurt, \ndanger, or 911. Do NOT trigger on general phrases \nlike \"stay on the line\" or \"hold on\".",
+    "nodes": [
+      {
+        "name": "End Call",
+        "id": "end-call-node-1782692939155",
+        "type": "end",
+        "display_position": {
+          "x": 7062,
+          "y": 1350
+        },
+        "instruction": {
+          "type": "prompt",
+          "text": "Politely end the call"
+        }
+      },
+      {
+        "instruction": {
+          "type": "prompt",
+          "text": "You are the authentication agent for Observe Insurance.\nThe caller has already stated why they are calling \nand has been routed here to verify their identity.\n\nCONTEXT (from inbound webhook):\ncustomer_found = {{customer_found}}\ncustomer_id = {{customer_id}}\nfirst_name = {{first_name}}\n\nFirst understand the context from the transcript, and if the user is returning form another node, to check another claim status, then directly ask for the new phone number, and follow the verification process. \n\nSTEP 1 — Confirm the account:\n\nIf customer_found is false or when the customer found is true but the customer is aksing for another account status:\n  Say: \"Could you give me the phone number \n  associated with your account?\"\n  Call lookup_customer with that number.\n  If found → go to STEP 2.\n  If not found → ask once more to confirm and spell the number out for hte user to confirm.  and call the lookup_customer again. \n  If still not found → escalate immediately.\n  NEVER ask for DOB if account not found.\n\nIf customer_found is true:\n  Say: \"I can see you're calling from a registered \n  account, {{first_name}}. Are you checking on this \n  account, or a different one?\"\n  \n  If same → go to STEP 2.\n  If different → ask: \"What phone number is on \n  that account?\" → call lookup_customer with the \n  number they provide → if found go to STEP 2 → \n  if not found after two attempts → escalate.\n\n\nSTEP 2 — Verify identity.\nSay: \"To verify your identity, can you confirm \nthe last four digits of your date of birth?\"\nCall verify_identity with:\n- customer_id: {{customer_id}}\n- dob_last4: last four digits they provide\n\nIf verified=true → aknowledge it, and call the trasition tool to transition immediately to the right transition node, without waiting for anything. \n\nIf verified=false first time:\n  Say: \"That doesn't quite match. Let's try once more — \n  the last four digits of your date of birth?\"\n\nIf verified=false second time → escalate.\n\nCRITICAL RULES:\n- Do NOT greet the caller — they were already greeted\n- Never ask for DOB before a successful account lookup\n- Never read customer_id or claim_id aloud\n- One question at a time\n- Brief bridge before every tool call\n- Do not say \"transferring\" or \"connecting\" when done\n- Once verified, immediately transition without waiting for user response. "
+        },
+        "name": "Auth Agent",
+        "edges": [
+          {
+            "destination_node_id": "node-1782751880537",
+            "id": "edge-1782752164027-on1u4htxq",
+            "transition_condition": {
+              "type": "prompt",
+              "prompt": "When the caller is failed to be authenticated"
+            }
+          },
+          {
+            "destination_node_id": "node-1782758753010",
+            "id": "edge-1782758964732-rizwo14v2",
+            "transition_condition": {
+              "type": "prompt",
+              "prompt": "Caller has provided the last four digits of their date of birth."
+            }
+          }
+        ],
+        "id": "node-1782692968177",
+        "tool_ids": [
+          "tool-1782693586109",
+          "tool-1782693681212",
+          "tool-1782693821229"
+        ],
+        "type": "subagent",
+        "display_position": {
+          "x": 4446,
+          "y": 2190
+        }
+      },
+      {
+        "instruction": {
+          "type": "prompt",
+          "text": "You are the claims specialist for Observe Insurance.\nThe caller has already been verified.\ncustomer_id = {{customer_id}}\nfirst_name = {{first_name}}\n\nSTEP 1 — LOOKUP (do this immediately on entry):\nCall get_claim_status with customer_id: {{customer_id}} only.\nDo not say anything before calling the tool.\nDo not wait for the caller to speak.\nThe tool's execution message handles the bridge.\n\nSTEP 2 — HANDLE THE RESPONSE:\n\nIf one claim returned:\n  Use the status_detail from that claim directly.\n  No second tool call needed.\n  Go to STEP 3.\n\nIf multiple claims returned:\n  Say: \"I can see you  have [list types — e.g. an auto \n  claim and a home claim]. Which would you like to \n  check on?\"\n  Wait for their answer.\n  Use the status_detail from the matching claim \n  in the same response. No second tool call needed.\n\nIf no claims found:\n  Say: \"I don't see any active claims on your account \n  right now. Would you like to know how to start a \n  new claim?\"\n  Then offer to help or escalate.\n\nIf tool fails or returns an error:\n  Say: \"I'm having trouble accessing your claim \n  right now. Let me connect you with a representative.\"\n  Then escalate.\n\nSTEP 3 — DELIVER STATUS:\n\nLead with the headline first:\n- Approved → \"Good news — your auto claim has been approved.\"\n- Under Review → \"Your auto claim is currently under review.\"\n- Pending Documents → \"Your claim needs some documents from you.\"\n- Denied → \"I want to make sure you get the right support \n  on this — let me connect you with a representative.\" \n  Then escalate immediately.\n\nThen use status_detail to explain in 1-2 natural sentences.\n\nIf status_detail is empty or null:\n  Say: \"I can see your claim but the detailed status \n  isn't showing right now. Let me connect you with a \n  representative who can give you the full picture.\"\n  Then escalate.\n\nIF DOCS REQUIRED:\nSay: \"There's one thing needed to move your claim \nforward — [docs_list]. You can submit these by logging \ninto observeinsurance.com, replying to your claim email, \nor using the mobile app. Digital submission is fastest.\"\n\nAFTER DELIVERING STATUS:\nAsk: \"Is there anything else I can help you with today?\"\nIf another claim question → use data already returned, \nno new tool call needed unless different claim requested.\nIf done → call write_interaction_record then end call.\nIf human requested → escalate.\n\nESCALATION:\nIf status_detail missing, claim denied, tool fails, \nor caller wants a human:\n1. Call notify_escalation with:\n   - caller_name: {{first_name}}\n   - reason: one line reason\n   - summary: brief context of what happened\n2. Transfer to human representative.\n\nRULES:\n- Never read claim_id, customer_id, or internal IDs aloud\n- Refer to claims by type only — \"your auto claim\"\n- Never fabricate claim details\n- Only use data from the tool response\n- Keep responses concise — this is a phone call\n- Brief bridge before every tool call\n- Always ask if there is anything else before ending\n- No second get_claim_status call unless caller \n  requests a different claim not in the first response"
+        },
+        "name": "Claims Sub agent",
+        "edges": [
+          {
+            "destination_node_id": "node-1782745300043",
+            "id": "edge-1782697387611-77vguxfcf",
+            "transition_condition": {
+              "type": "prompt",
+              "prompt": "caller has no further questions and happy with the response. "
+            }
+          },
+          {
+            "destination_node_id": "node-1782744216582",
+            "id": "edge-1782752987248-br2mtgwuf",
+            "transition_condition": {
+              "type": "prompt",
+              "prompt": "Caller has a general question about hours, address, or processDescribe the transition condition"
+            }
+          },
+          {
+            "destination_node_id": "node-1782751880537",
+            "id": "edge-1782753003852-aqhgyzowa",
+            "transition_condition": {
+              "type": "prompt",
+              "prompt": "Caller wants a human representative"
+            }
+          },
+          {
+            "destination_node_id": "node-1782692968177",
+            "id": "edge-1782755505445-ryx4nd6zd",
+            "transition_condition": {
+              "type": "prompt",
+              "prompt": "Caller wants to check another claim status with another phone number"
+            }
+          }
+        ],
+        "id": "node-1782697387611",
+        "tool_ids": [
+          "tool-1782693821229",
+          "tool-1782697534400",
+          "tool-1782782822293"
+        ],
+        "type": "subagent",
+        "display_position": {
+          "x": 2406,
+          "y": 6
+        }
+      },
+      {
+        "instruction": {
+          "type": "prompt",
+          "text": "You are the FAQ assistant for Observe Insurance.\nYou answer general questions about the company \nand the claims process.\n\nYour knowledge base contains information about:\n- Office hours\n- Mailing address  \n- How to start a new claim\n- General claims process\n- Document submission\n\nANSWERING QUESTIONS:\nUse ONLY your connected knowledge base to answer.\nNever fabricate hours, addresses, or process details.\nKeep answers concise — this is a phone call.\nAfter answering, ask: \"Is there anything else \nI can help you with?\"\n\nIF THE KNOWLEDGE BASE DOESN'T HAVE THE ANSWER:\nSay: \"That's a good question — I want to make \nsure I give you accurate information rather than \nguess. Let me connect you with a representative \nwho can help with that.\"\nThen call notify_escalation and transfer to human.\n\nIF CALLER WANTS A HUMAN:\nSay: \"Of course — let me get you connected.\"\nCall notify_escalation then transfer to human.\n\n\nRULES:\n- Never make up information not in the knowledge base\n- Never read internal IDs aloud\n- One question at a time\n- Keep responses brief and phone-friendly\n- If unsure about anything, escalate rather than guess"
+        },
+        "name": "FAQ Sub Agent",
+        "edges": [
+          {
+            "destination_node_id": "node-1782745300043",
+            "id": "edge-1782744216582-xm0ew2vo7",
+            "transition_condition": {
+              "type": "prompt",
+              "prompt": "Caller has no further questions "
+            }
+          },
+          {
+            "destination_node_id": "node-1782751880537",
+            "id": "edge-1782744421933-u18xhdpu1",
+            "transition_condition": {
+              "type": "prompt",
+              "prompt": "Knowledge Base cannot answer the user's question"
+            }
+          },
+          {
+            "destination_node_id": "node-1782746364074",
+            "id": "edge-1782744944493-1l3289klf",
+            "transition_condition": {
+              "type": "prompt",
+              "prompt": "If customer wants to check on their claim status related information. "
+            }
+          }
+        ],
+        "id": "node-1782744216582",
+        "tool_ids": [
+          "tool-1782693821229"
+        ],
+        "knowledge_base_ids": [],
+        "type": "subagent",
+        "display_position": {
+          "x": 3150,
+          "y": 1014
+        }
+      },
+      {
+        "custom_sip_headers": {},
+        "transfer_destination": {
+          "type": "predefined",
+          "number": "+16179349090"
+        },
+        "edge": {
+          "destination_node_id": "node-1782745300043",
+          "id": "edge-1782744483617-gcodko34d",
+          "transition_condition": {
+            "type": "prompt",
+            "prompt": "Transfer failed"
+          }
+        },
+        "name": "Transfer Call",
+        "ignore_e164_validation": false,
+        "id": "node-1782744483617",
+        "transfer_option": {
+          "on_hold_music": "relaxing_sound",
+          "transfer_ring_duration_ms": 18000,
+          "opt_out_human_detection": false,
+          "enable_bridge_audio_cue": false,
+          "type": "warm_transfer",
+          "agent_detection_timeout_ms": 30000,
+          "show_transferee_as_caller": false
+        },
+        "type": "transfer_call",
+        "speak_during_execution": false,
+        "display_position": {
+          "x": 5958,
+          "y": 1998
+        }
+      },
+      {
+        "instruction": {
+          "type": "static_text",
+          "text": "Thank you for calling Observe Insurance. \nHave a great day!"
+        },
+        "name": "Conversation",
+        "edges": [],
+        "id": "node-1782745300043",
+        "type": "conversation",
+        "display_position": {
+          "x": 6678,
+          "y": 1326
+        },
+        "skip_response_edge": {
+          "destination_node_id": "end-call-node-1782692939155",
+          "id": "skip-response-edge-1782745323710-vo895fb6i",
+          "transition_condition": {
+            "type": "prompt",
+            "prompt": "Skip response"
+          }
+        }
+      },
+      {
+        "instruction": {
+          "type": "static_text",
+          "text": "Thankyou for holding , Your acocount has been verified. Give me moment, while I pull up your claims record.. "
+        },
+        "name": "Conversation",
+        "edges": [],
+        "id": "node-1782745453830",
+        "type": "conversation",
+        "display_position": {
+          "x": 1854,
+          "y": 750
+        },
+        "skip_response_edge": {
+          "destination_node_id": "node-1782697387611",
+          "id": "skip-response-edge-1782745475545-75drquy98",
+          "transition_condition": {
+            "type": "prompt",
+            "prompt": "Skip response"
+          }
+        }
+      },
+      {
+        "name": "Logic Split",
+        "edges": [
+          {
+            "destination_node_id": "node-1782745453830",
+            "id": "edge-1782746375054-vd9kzl9p8",
+            "transition_condition": {
+              "type": "equation",
+              "equations": [
+                {
+                  "left": "{{is_verified}}",
+                  "operator": "==",
+                  "right": "true"
+                }
+              ],
+              "operator": "&&"
+            }
+          }
+        ],
+        "id": "node-1782746364074",
+        "else_edge": {
+          "destination_node_id": "node-1782692968177",
+          "id": "edge-1782746364074-o7bdjc5ii",
+          "transition_condition": {
+            "type": "prompt",
+            "prompt": "Else"
+          }
+        },
+        "type": "branch",
+        "display_position": {
+          "x": 3894,
+          "y": 2766
+        }
+      },
+      {
+        "name": "Main Router",
+        "edges": [
+          {
+            "destination_node_id": "branch-1782753918681-0",
+            "id": "edge-1782751030906-glsfjkwkq",
+            "transition_condition": {
+              "type": "prompt",
+              "prompt": "When the user wants to check a claim status."
+            }
+          },
+          {
+            "destination_node_id": "node-1782744216582",
+            "id": "edge-1782751354721-xzmjw9vl5",
+            "transition_condition": {
+              "type": "prompt",
+              "prompt": "When the user has a general question."
+            }
+          },
+          {
+            "destination_node_id": "node-1782751880537",
+            "id": "edge-1782751389134-362vutlcn",
+            "transition_condition": {
+              "type": "prompt",
+              "prompt": "When the user is upset, and wants human help or escalation."
+            }
+          },
+          {
+            "destination_node_id": "node-1782745300043",
+            "id": "edge-1782752557306-u36lkd3yh",
+            "transition_condition": {
+              "type": "prompt",
+              "prompt": "When the user is happy, and has no further questions."
+            }
+          }
+        ],
+        "id": "node-1782751030906",
+        "type": "subagent",
+        "display_position": {
+          "x": 558,
+          "y": 390
+        },
+        "instruction": {
+          "type": "prompt",
+          "text": "You are the central router for Observe Insurance.\nYou direct callers to the right place based on \nwhat they need.\n\nAVAILABLE CONTEXT:\ncustomer_found = {{customer_found}}\nis_verified = {{is_verified}}\nfirst_name = {{first_name}}\n\nYOUR ONLY JOB:\nUnderstand what the caller needs and transition \nto the correct node. Do not answer questions yourself.\nDo not look up any information yourself.\n\nIF THIS IS THE START OF THE CALL ( you can check if the transcript is empty) :\nGreet the caller:\n\"Thank you for calling Observe Insurance. \nHow can I help you today?\"\n\nIF RETURNING FROM ANOTHER NODE ( look at the transcript so far to undestand where the user is right now):\nDo not re-greet. Just ask:\n\"Is there anything else I can help you with? or appropriate follow up question.\"\n\nROUTING RULES:\nWhen doing transition, do not speak, just transition. \n- Claim status, check my claim, claim update \n  → transition to Auth node\n- Office hours, address, how to start a claim,\n  general process questions \n  → transition to FAQ node  \n- I want a human, speak to someone, representative\n  → transition to Escalation\n- Emergency, accident, fire, injured, danger\n  → say \"If anyone is in danger please call 911\" \n  → transition to Escalation\n\nIMPORTANT:\nIf caller is already verified (is_verified = true) \nand wants claim status → transition directly to \nClaims node, skip Auth."
+        }
+      },
+      {
+        "instruction": {
+          "type": "prompt",
+          "text": "You are the escalation specialist for Observe Insurance.\nYou have been called because this caller needs to be \nconnected with a human representative.\n\nSTEP 1 — Read the conversation context.\nReview what has happened in this call so far.\nUnderstand why the caller needs escalation:\n- Did authentication fail?\n- Did they request a human?\n- Was there a system error?\n- Is there a specific claim issue?\n\nSTEP 2 — Acknowledge and gather context.\nSay: \"I understand — let me make sure our \nrepresentative has everything they need to \nhelp you right away.\"\n\nAsk ONE focused follow-up question based on \nwhat you read in the transcript. For example:\n- If auth failed: \"Just so our representative \n  can locate your account — is there another \n  way we can reach you, like an email address?\"\n- If claim issue: \"Can you give me a quick \n  summary of your main concern about your claim?\"\n- If human requested: \"Is there anything specific \n  you'd like me to pass along to the representative?\"\n\nWait for their response.\n\nSTEP 3 — Call notify_escalation.\nUse everything from the transcript and the \ncaller's response to build a detailed summary.\nCall notify_escalation with:\n- caller_name: {{first_name}} or \"Valued customer\" \n  if empty\n- reason: one clear line why escalating\n- summary: 2-3 sentences covering who the caller is,\n  what they needed, what went wrong, and what the \n  caller just told you\n\nSTEP 4 — Reassure the caller.\nSay: \"Perfect — I've notified our team with \nall the details. You'll be connected with a \nrepresentative who has the full context and \nwon't need you to repeat yourself.\"\n\nThen transition to the Call Transfer node.\n\nRULES:\n- Never try to resolve the issue yourself\n- Never ask for more than one follow-up question\n- Never read customer_id or claim_id aloud\n- Keep it warm and efficient — caller just wants help\n- Always call notify_escalation before transitioning"
+        },
+        "name": "Escalation Agent",
+        "edges": [
+          {
+            "destination_node_id": "node-1782744483617",
+            "id": "edge-1782751880537-iejv5of1a",
+            "transition_condition": {
+              "type": "prompt",
+              "prompt": "When the escalation is notified and when the caller needs human help. "
+            }
+          }
+        ],
+        "id": "node-1782751880537",
+        "tool_ids": [
+          "tool-1782693821229"
+        ],
+        "type": "subagent",
+        "display_position": {
+          "x": 5190,
+          "y": 1542
+        }
+      },
+      {
+        "name": "Logic Split (Copy)",
+        "edges": [
+          {
+            "destination_node_id": "node-1782745453830",
+            "id": "branch-1782753918681-0-edge-1782753918681-0",
+            "transition_condition": {
+              "type": "equation",
+              "equations": [
+                {
+                  "left": "{{is_verified}}",
+                  "operator": "==",
+                  "right": "true"
+                }
+              ],
+              "operator": "&&"
+            }
+          }
+        ],
+        "id": "branch-1782753918681-0",
+        "else_edge": {
+          "destination_node_id": "node-1782692968177",
+          "id": "branch-1782753918681-0-else-edge-1782753918681",
+          "transition_condition": {
+            "type": "prompt",
+            "prompt": "Else"
+          }
+        },
+        "type": "branch",
+        "display_position": {
+          "x": 1302,
+          "y": 726
+        }
+      },
+      {
+        "variables": [
+          {
+            "name": "dob_last_four",
+            "type": "string",
+            "description": "The exact last four digits of the caller’s date of birth. Extract only digits."
+          }
+        ],
+        "else_edge": {
+          "destination_node_id": "node-1782759027165",
+          "id": "node-1782758753010-else-edge",
+          "transition_condition": {
+            "type": "prompt",
+            "prompt": "Else"
+          }
+        },
+        "name": "Extract Variables",
+        "edges": [],
+        "id": "node-1782758753010",
+        "type": "extract_dynamic_variables",
+        "display_position": {
+          "x": 5310,
+          "y": 3366
+        }
+      },
+      {
+        "tool_id": "tool-1782693681212",
+        "else_edge": {
+          "destination_node_id": "node-1782746364074",
+          "id": "node-1782759027165-else-edge",
+          "transition_condition": {
+            "type": "prompt",
+            "prompt": "Else"
+          }
+        },
+        "instruction": {
+          "type": "static_text",
+          "text": "Please hold while we verify your account."
+        },
+        "name": "Verify Identity",
+        "edges": [],
+        "enable_typing_sound": false,
+        "id": "node-1782759027165",
+        "type": "function",
+        "tool_type": "local",
+        "speak_during_execution": true,
+        "display_position": {
+          "x": 5958,
+          "y": 3366
+        },
+        "wait_for_result": true
+      },
+      {
+        "tool_id": "tool-1782782822293",
+        "else_edge": {
+          "id": "node-1782782874294-else-edge",
+          "transition_condition": {
+            "type": "prompt",
+            "prompt": "Else"
+          }
+        },
+        "name": "Write Interaction Record",
+        "edges": [],
+        "enable_typing_sound": false,
+        "id": "node-1782782874294",
+        "type": "function",
+        "tool_type": "local",
+        "speak_during_execution": false,
+        "display_position": {
+          "x": 7061.490869025175,
+          "y": 1448.5530600883956
+        },
+        "wait_for_result": true
+      }
+    ],
+    "components": [
+      {
+        "name": "Component L1",
+        "start_node_id": "conversation-1782757318395",
+        "conversation_flow_component_id": "cf-component-1782757318392",
+        "nodes": [
+          {
+            "else_edge": {
+              "destination_node_id": "component-end-1782757318395",
+              "id": "else-edge-1782757328285-3826mu153",
+              "transition_condition": {
+                "type": "prompt",
+                "prompt": "Else"
+              }
+            },
+            "instruction": {
+              "type": "prompt",
+              "text": "Describe what the AI should say or do"
+            },
+            "name": "Conversation",
+            "edges": [],
+            "id": "conversation-1782757318395",
+            "type": "conversation",
+            "display_position": {
+              "x": 200,
+              "y": 100
+            }
+          },
+          {
+            "name": "Exit Component",
+            "id": "component-end-1782757318395",
+            "type": "end",
+            "speak_during_execution": false,
+            "display_position": {
+              "x": 600,
+              "y": 100
+            },
+            "instruction": {
+              "type": "static_text",
+              "text": "Component completed"
+            }
+          }
+        ],
+        "user_modified_timestamp": 1782757318395,
+        "tools": []
+      }
+    ],
+    "start_node_id": "node-1782751030906",
+    "start_speaker": "agent",
+    "tools": [
+      {
+        "headers": {},
+        "parameter_type": "form",
+        "execution_message_type": "static_text",
+        "method": "POST",
+        "query_params": {},
+        "description": "Look up a customer account by phone number. Call this after understanding the caller's intent and confirming which phone number to use.",
+        "enable_typing_sound": true,
+        "type": "custom",
+        "url": "https://observe-insurance-claims-agent.onrender.com/tools/lookup-customer",
+        "tool_id": "tool-1782693586109",
+        "args_at_root": true,
+        "execution_message_description": "Let me look that up for you. ",
+        "timeout_ms": 120000,
+        "speak_after_execution": true,
+        "name": "lookup_customer",
+        "response_variables": {
+          "last_name": "last_name",
+          "customer_found": "found",
+          "customer_id": "customer_id",
+          "first_name": "first_name"
+        },
+        "speak_during_execution": false,
+        "parameters": {
+          "type": "object",
+          "required": [
+            "phone_number"
+          ],
+          "properties": {
+            "phone_number": {
+              "type": "string",
+              "description": "The phone number the caller just provided verbally.  Extract every digit they said in order.  Do not use {{caller_phone_number}}.  Use exactly what the caller spoke."
+            }
+          }
+        }
+      },
+      {
+        "headers": {},
+        "parameter_type": "form",
+        "execution_message_type": "prompt",
+        "method": "POST",
+        "query_params": {},
+        "description": "Verify the caller's identity using the last four digits of their date of birth. Only call this after lookup_customer has returned found=true.",
+        "enable_typing_sound": true,
+        "type": "custom",
+        "url": "https://observe-insurance-claims-agent.onrender.com/tools/verify-identity",
+        "tool_id": "tool-1782693681212",
+        "args_at_root": true,
+        "execution_message_description": "Let me verify that.!",
+        "timeout_ms": 120000,
+        "speak_after_execution": true,
+        "name": "verify_identity",
+        "response_variables": {
+          "is_verified": "verified"
+        },
+        "speak_during_execution": false,
+        "parameters": {
+          "type": "object",
+          "required": [
+            "customer_id",
+            "dob_last4"
+          ],
+          "properties": {
+            "customer_id": {
+              "type": "string",
+              "const": "{{customer_id}}"
+            },
+            "dob_last4": {
+              "type": "string",
+              "const": "{{dob_last_four}}"
+            }
+          }
+        }
+      },
+      {
+        "headers": {},
+        "parameter_type": "form",
+        "execution_message_type": "prompt",
+        "method": "POST",
+        "query_params": {},
+        "description": "Send a Slack alert when escalating to a human. Always call this before transferring to a human representative.",
+        "enable_typing_sound": false,
+        "type": "custom",
+        "url": "https://observe-insurance-claims-agent.onrender.com/tools/notify-escalation",
+        "tool_id": "tool-1782693821229",
+        "args_at_root": true,
+        "execution_message_description": "Let me escalate that for you..!",
+        "timeout_ms": 120000,
+        "speak_after_execution": true,
+        "name": "notify_escalation",
+        "response_variables": {},
+        "speak_during_execution": false,
+        "parameters": {
+          "type": "object",
+          "required": [
+            "summary",
+            "reason"
+          ],
+          "properties": {
+            "summary": {
+              "type": "string",
+              "description": "Brief summary of what happened on the call"
+            },
+            "caller_name": {
+              "type": "string",
+              "const": "{{first_name}}"
+            },
+            "reason": {
+              "type": "string",
+              "description": "One line reason for escalation"
+            }
+          }
+        }
+      },
+      {
+        "headers": {},
+        "parameter_type": "form",
+        "execution_message_type": "prompt",
+        "method": "POST",
+        "query_params": {},
+        "description": "Retrieve claim status for an authenticated customer. Always pass customer_id. Pass claim_id only when the caller has multiple claims and has chosen a specific one.\n",
+        "enable_typing_sound": false,
+        "type": "custom",
+        "url": "https://observe-insurance-claims-agent.onrender.com/tools/get-claim-status",
+        "tool_id": "tool-1782697534400",
+        "args_at_root": true,
+        "execution_message_description": "Let me look up the claim status..",
+        "timeout_ms": 120000,
+        "speak_after_execution": true,
+        "name": "get_claim_status",
+        "response_variables": {
+          "selected_claim_type": "type",
+          "docs_list": "docs_list",
+          "claim_found": "found",
+          "claim_status": "status",
+          "docs_required": "docs_required",
+          "status_detail": "status_detail",
+          "selected_claim_id": "claim_id"
+        },
+        "speak_during_execution": false,
+        "parameters": {
+          "type": "object",
+          "required": [
+            "customer_id"
+          ],
+          "properties": {
+            "customer_id": {
+              "type": "string",
+              "const": "{{customer_id}}"
+            }
+          }
+        }
+      },
+      {
+        "headers": {},
+        "parameter_type": "form",
+        "execution_message_type": "prompt",
+        "method": "POST",
+        "query_params": {},
+        "description": "Write a post-call interaction record at the end of \na successful call. Call this before saying goodbye \nwhen the call resolves cleanly. The system will \nautomatically handle hangups and transfers separately.",
+        "enable_typing_sound": false,
+        "type": "custom",
+        "url": "https://observe-insurance-claims-agent.onrender.com/tools/write-interaction-record",
+        "tool_id": "tool-1782782822293",
+        "args_at_root": false,
+        "execution_message_description": "",
+        "timeout_ms": 120000,
+        "speak_after_execution": false,
+        "name": "write_interaction_record",
+        "response_variables": {},
+        "speak_during_execution": false,
+        "parameters": {
+          "type": "object",
+          "required": [
+            "customer_id",
+            "caller_name",
+            "call_summary",
+            "sentiment",
+            "intent",
+            "escalated",
+            "resolution"
+          ],
+          "properties": {
+            "caller_name": {
+              "type": "string",
+              "const": "{{first_name}}"
+            },
+            "sentiment": {
+              "type": "string",
+              "description": "Positive, Neutral, or Negative"
+            },
+            "escalated": {
+              "type": "boolean",
+              "description": "true if transferred to human, false otherwise"
+            },
+            "customer_id": {
+              "type": "string",
+              "const": "{{customer_id}}"
+            },
+            "intent": {
+              "type": "string",
+              "description": "claim_status, faq, escalation, or other"
+            },
+            "resolution": {
+              "type": "string",
+              "description": "resolved, escalated, or incomplete"
+            },
+            "call_summary": {
+              "type": "string",
+              "description": "2-3 sentence summary of what happened on this call"
+            }
+          }
+        }
+      }
+    ],
+    "model_choice": {
+      "type": "cascading",
+      "model": "gpt-5.4",
+      "high_priority": false
+    },
+    "tool_call_strict_mode": true,
+    "knowledge_base_ids": [],
+    "kb_config": {
+      "top_k": 3,
+      "filter_score": 0.6
+    },
+    "begin_tag_display_position": {
+      "x": 6,
+      "y": 750
+    },
+    "notes": [],
+    "is_published": false,
+    "flex_mode": false,
+    "is_transfer_cf": false
+  }
+}
