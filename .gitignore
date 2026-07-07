@@ -10,3 +10,10 @@ Observe_TakeHome_Master_Strategy.md
 Observe_TakeHome_Build_Assets.md
 Observe_TakeHome_EdgeCases_Production.md
 *.pdf
+
+# Interview prep documents (local only)
+PRODUCTION_HARDENING.md
+PRODUCTION_HARDENING_SUMMARY.md
+BACKEND_INTERVIEW_GUIDE.md
+ARCHITECTURE.md
+CODEBASE_WALKTHROUGH.md
